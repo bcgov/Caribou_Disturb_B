@@ -11,18 +11,16 @@
 # See the License for the specific language governing permissions and limitations under the License.
 
 ## 
-## Caribou disturbance analysis 2018 
+## Caribou disturbance analysis 2018/2019 
 ## 
-## August 14th 2018 - updated November 5th 2018 
-##
+## Rerunning caribou analysis based on updated boundary and new disturbance layere provided by RSEA project 
 ## written by genevieve perkins (genevieve.perkins@gov.bc.ca)
 ## 
 ## This requires initial preparation of layers within arcmap. 
 ## Step 1) 
-## Assemble layers as per datasheet in arcmap mxd 
-## Clip the layers to the range with the largest extent (for example range boundary for Boreal (not core))
+## Assemble layers as listed in documentation in arcmap mxd 
+## Clip the layers to the range with the largest extent (AOI_boreal = 1 km buffered widest extent)
 ## Create a filegeodatabdase and output these to the given data base. 
-## Edit this script for whichever 
 
 ## Step 2)
 ## Run through the script below. You may need to adjust 
@@ -30,7 +28,7 @@
 ## - the directory/folder sructure. 
 ##
 ## General notes: 
-## For each disturbance layers the script will read in, intersect with range and core areas and calculate the area and or length. The peripery area will be calculated for each herd as well. 
+## For each disturbance layers the script will read in, intersect with zones ABC and calculate the area and or length. 
 ## With each layer the compiled disturbance will also be calculated. 
 
 ## Associated help files for reference: 
@@ -44,61 +42,53 @@
 
 #install.packages(c("rgdal","sp","dplyr","raster","rgeos","maptools","magrittr","tibble", 
 #			"tidyr","sf","lwgeom","mapview"),dep = T )
-library(ggplot2)
-library(dplyr)
-library(rgdal)
-library(sp)
-library(raster)
-library(rgeos)
-library(maptools)
-library(magrittr)
-library(tibble)
-library(tidyr)
-library(sf)
-library(lwgeom)
-library(mapview)
-library(bcgovr)
 
-create_bcgov_project(path = "C:/Temp/Github/Caribou_disturb/Boreal/", coc_email = "genevieve.perkins@gov.bc.ca") 
+
+# Load Libraries 
+x <- c("dplyr","ggplot2","tidyr","raster","sp","sf","rgdal","lwgeom","mapview","tibble", "bcgovr")   
+lapply(x, library, character.only = TRUE) ; rm(x)  # load the required packages
+
+#create_bcgov_project(path = "C:/Temp/Github/Caribou_disturb/Boreal/", coc_email = "genevieve.perkins@gov.bc.ca") 
 
 ## set your output directory 
-#out.dir = "X:/projects/Desktop_Analysis/data/output1/"
 
-out.dir = "X:/projects/Desktop_Analysis/documents/NxNW/"
-temp.dir = "X:/projects/Desktop_Analysis/data/temp/"
+data.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/Data/"
+out.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/Analysis/"
+temp.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/temp/"
+
+#out.dir = "X:/projects/Desktop_Analysis/documents/NxNW/"
+#temp.dir = "X:/projects/Desktop_Analysis/data/temp/"
 
 ## Set your input geodatabases (this will be where you saved your arcmap exports)
 ## edit these to your filepath and name of gdb
 
-#Dissolved  = "X:/projects/Desktop_Analysis/data/Boreal.gdb" # contains 
-#Intersect = "X:/projects/Desktop_Analysis/data/scratch1.gdb"
-Base  = "X:/projects/Desktop_Analysis/data/Base_data.gdb" # contains boundaries of interest 
+Base  = "Base_data.gdb" # clipped disturb layers
+AOI = "AOI_data.gdb"   # AOI
 
 ## List all feature classes in a file geodatabase
 subset(ogrDrivers(), grepl("GDB", name))
-#dis_list <- ogrListLayers(Dissolved); print(dis_list)
-int_list <- ogrListLayers(Intersect); print(int_list)
-base_list <- ogrListLayers(Base); print(base_list)
+base_list <- ogrListLayers(paste(data.dir,Base,sep = "")); print(base_list)
+aoi_list <- ogrListLayers(paste(data.dir,AOI,sep = "")); print(aoi_list)
 
 ##############################################################################################
-# Read in herd boundary layers 
+# Read in herd boundary layers and join to single file 
 
-b.core <- st_read(dsn=Base,layer="Boreal_core_BC")
-b.range <- st_read(dsn=Base,layer="Boreal_range_BC")
-b.core.r <- st_intersection(b.range,b.core)
+Herd_key <- read.csv(paste(data.dir,"Herd_key.csv",sep = ""))
+b.aoi <- st_read(paste(data.dir,"Boreal_herd_bdry.shp",sep = ""))
 
-# calculate the area of core/range/peripery to calculate % values 
 
-Herd_key<- data.frame(b.core.r) %>% 
-  dplyr::select(Range,CORE_NAME,Shape_Area_m,Shape_Area.1) %>% 
-  mutate(R_area_ha = Shape_Area_m/10000) %>% mutate(C_area_ha = Shape_Area.1/10000) %>%
-  dplyr::select(-c(Shape_Area_m,Shape_Area.1)) %>%
-  group_by(Range)%>%
-  summarise(R_area_ha = first(R_area_ha),C_area_ha = sum(C_area_ha))
-    
-  Herd_key$P_area_ha <- Herd_key$R_area_ha - Herd_key$C_area_ha # add the values for the periperhy 
-  write.csv(Herd_key, paste(out.dir,"Herd_key.csv",sep = ""))
-  
+
+
+
+## nead to read in the clipped data sets .........
+
+
+
+
+
+
+
+
 ##############################################################################################
 # Read in individual Disturbance layers:
 
