@@ -105,6 +105,5 @@ herds <- as.character(unique(out.tab$Range))
   
   
   
-  
-## Make some pretty plots 
+
 

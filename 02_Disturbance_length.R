@@ -55,609 +55,217 @@
 
 ## Read in packages and libraries required: 
 
-#install.packages(c("rgdal","sp","dplyr","raster","rgeos","maptools","magrittr","tibble", 
-#				"tidyr","sf","lwgeom","mapview"),dep = T )
-library(ggplot2)
-library(dplyr)
-library(rgdal)
-library(sp)
-library(raster)
-library(rgeos)
-library(maptools)
-library(magrittr)
-library(tibble)
-library(tidyr)
-library(sf)
-library(lwgeom)
-library(mapview)
+
+
+# Load Libraries 
+x <- c("dplyr","ggplot2","tidyr","raster","sp","sf","rgdal","lwgeom","mapview","tibble", "bcgovr")   
+lapply(x, library, character.only = TRUE) ; rm(x)  # load the required packages
+
+#install.packages("doParallel",dep = T)
+require(doParallel)
+set.seed(123321)
+coreNum <- as.numeric(detectCores()-1)
+coreNo <- makeCluster(coreNum)
+registerDoParallel(coreNo, cores = coreNum)
+clusterEvalQ(coreNo, .libPaths())
+
+memory.limit(size = 80000)
+
+#create_bcgov_project(path = "C:/Temp/Github/Caribou_disturb/Boreal/", coc_email = "genevieve.perkins@gov.bc.ca") 
 
 ## set your output directory 
-out.dir = "X:/projects/Desktop_Analysis/data/output1/"
-temp.dir = "X:/projects/Desktop_Analysis/data/temp/"
+#data.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/Data/"
+#out.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/Analysis/"
+#temp.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/temp/"
+
+# running on local drive
+data.dir = "C:/Temp/Boreal/Data/"
+out.dir = "C:/Temp/Boreal/Analysis/"
+shape.out.dir =  "C:/Temp/Boreal/Analysis/dist_int_layers/"
+temp.dir = "C:/Temp/Boreal/temp/"
 
 ## Set your input geodatabases (this will be where you saved your arcmap exports)
 ## edit these to your filepath and name of gdb
 
-Dissolved  = "X:/projects/Desktop_Analysis/data/Boreal.gdb" # contains 
-Intersect = "X:/projects/Desktop_Analysis/data/scratch1.gdb"
-Base  = "X:/projects/Desktop_Analysis/data/Base_data.gdb" # contains boundaries of interest 
+Base  = "Base_data.gdb" # clipped disturb layers
+#AOI = "AOI_data.gdb"   # AOI
 
 ## List all feature classes in a file geodatabase
 subset(ogrDrivers(), grepl("GDB", name))
-dis_list <- ogrListLayers(Dissolved); print(dis_list)
-int_list <- ogrListLayers(Intersect); print(int_list)
-base_list <- ogrListLayers(Base); print(base_list)
+base_list <- ogrListLayers(paste(data.dir,Base,sep = "")); print(base_list)
+#aoi_list <- ogrListLayers(paste(data.dir,AOI,sep = "")); print(aoi_list)
 
 ##############################################################################################
-# Read in herd boundary layers 
+# Read in herd boundary layers and join to single file 
 
-b.core <- st_read(dsn=Base,layer="Boreal_core_BC")
-b.range <- st_read(dsn=Base,layer="Boreal_range_BC")
-b.core.r <- st_intersection(b.range,b.core)
+Herd_key <- read.csv(paste(data.dir,"Herd_key.csv",sep = ""))
+b.aoi <- st_read(paste(data.dir,"Boreal_herd_bdry.shp",sep = ""))
+st_crs(b.aoi)<- 3005
+#plot(b.aoi)
+#plot(st_geometry(b.aoi))
 
-# calculate the area of core/range/peripery to calculate % values 
-
-Herd_key<- data.frame(b.core.r) %>% 
-  dplyr::select(Range,CORE_NAME,Shape_Area_m,Shape_Area.1) %>% 
-  mutate(R_area_ha = Shape_Area_m/10000) %>% mutate(C_area_ha = Shape_Area.1/10000) %>%
-  dplyr::select(-c(Shape_Area_m,Shape_Area.1)) %>%
-  group_by(Range)%>%
-  summarise(R_area_ha = first(R_area_ha),C_area_ha = sum(C_area_ha))
-
-Herd_key$P_area_ha <- Herd_key$R_area_ha - Herd_key$C_area_ha # add the values for the periperhy 
+Herd_key$ThemeName = "Total_Area"
+Herd_key <- Herd_key %>% dplyr::select(Range, Zone, ThemeName, Area_ha) 
+out.tab <- Herd_key 
+out.tab$length_m2 = 0
 
 ##############################################################################################
-# Read in individual Disturbance layers: LINEAR FEATURES ONLY 
+# Read in individual Disturbance layers:
 
-# 1) pipeline (length)
-          r.pipe <- st_read(dsn=Intersect,layer="R_PIPELINE_SEGMENT_PERMIT_S") # multistring 
-          r.pipe = st_transform(r.pipe,3005)
-          r.pipe<- st_cast(r.pipe, "LINESTRING")
-          r.pipe.int = st_intersection(b.range,r.pipe)   # intersect with ranges
-          r.pipe.int$Length_m = st_length(r.pipe.int)    # calculate the length
-          
-          # RANGE: intersect with range and calculate length per range
-          #r.pipe.int <- st_buffer(r.pipe.int,1)  ; all.pipe = sum(st_area(r.pipe)) ; plot(st_geometry(r.pipe))
-          #st_is_valid(r.pipe.int)                       # check valid geometry
-          #r.pipe.int = st_cast(r.pipe.int,"POLYGON")     # fix overlaps
-          ##plot(st_geometry(r.pipe.int))
-          #st_write(r.pipe.int,"Dist_R_pipe.shp")       #write out individual dist_layer for Range
-          
-          r.pipe.int.df = data.frame(r.pipe.int)        # calculate the length per range 
-          r.pipe.int.df.out  = r.pipe.int.df %>% 
-            mutate(Pipe_length_m = Length_m) %>% 
-            group_by(Range) %>% 
-            summarise(R_Pipe_length_m = sum(Pipe_length_m))
-          
-          # CORE: intersect with core and calculate length per range
-          c.pipe.int = st_intersection(b.core,r.pipe) # intersect with ranges
-          c.pipe.int<- st_cast(c.pipe.int, "LINESTRING")
-          c.pipe.int$Length_m = st_length(c.pipe.int)
-          
-          #c.pipe.int <- st_buffer(c.pipe.int,1)
-          #st_is_valid(c.pipe.int)  
-          #c.pipe.int = st_cast(c.pipe.int,"POLYGON")
-          ##plot(st_geometry(c.pipe.int))
-          #st_write(r.pipe.int,"Dist_C_pipe.shp") 
-          c.pipe.int.df = data.frame(c.pipe.int)        # calculate the length per core/range 
-          c.pipe.int.df.out  = c.pipe.int.df %>% 
-            mutate(Pipe_length_m = Length_m) %>% 
-            group_by(Range) %>% 
-            summarise(C_Pipe_length_m = sum(Pipe_length_m))
-          
-          out = left_join(r.pipe.int.df.out,c.pipe.int.df.out, all = both)
-          out [is.na(out )] <- 0
-          out$P_Pipe_length_m = out$R_Pipe_length_m - out$C_Pipe_length_m
-          out.pipe = out
+##linear : level B : "TR_Rail_B" ,   "CU_Trail_B"     
+## linear level C:" AOI_anth_C_linear" 
 
-# 2) transmission (length  
-r.tran.sf <- st_read(dsn=Intersect,layer="BC_trans") # multistring  
-
-          # 1) RANGE: calculate the range extent to use range extent 
-          r.tran <- st_intersection(b.range,r.tran.sf)# intersect with ranges
-          r.tran = st_transform(r.tran,3005)
-          r.tran<- st_cast(r.tran, "LINESTRING")
-          
-          r.tran$Length_m = st_length(r.tran)
-          r.tran.df = data.frame(r.tran)        # calculate the length per range 
-          r.tran.df.out  = r.tran.df%>% 
-            mutate(Trans_length_m = Length_m) %>% 
-            group_by(Range) %>% 
-            summarise(R_Trans_length_m = sum(Trans_length_m))
-          
-          # 2) CORE; intersect with core and calculate length per range 
-          c.tran.int = st_intersection(b.core.r,r.tran.sf) # intersect with ranges
-          c.tran.int$Length_m = st_length(c.tran.int)
-          c.tran.int.df = data.frame(c.tran.int)        # calculate the length per core/range 
-          c.tran.int.df.out  = c.tran.int.df %>% 
-            mutate(Trans_length_m = Length_m) %>% 
-            group_by(Range) %>% 
-            summarise(C_Trans_length_m = sum(Trans_length_m))
-          
-          out.trans = left_join(r.tran.df.out,c.tran.int.df.out, all = both)
-          out.trans[is.na(out.trans)] <- 0
-          out.trans$P_Trans_length_m = out.trans$R_Trans_length_m - out.trans$C_Trans_length_m
-          
-          range.layer.cals <- left_join(out.pipe,out.trans) ; range.layer.cals [is.na(range.layer.cals )] <- 0
-
-          ## 3) ALL DISTURBANCE UNION 1
-          out = st_union(r.pipe.int,r.tran) ; plot(st_geometry(out))
-          out = st_union(out); plot(st_geometry(out),add = T)
-          
-          #out = st_cast(out,"LINESTRING")
-          st_length(out)
-          #x.area = sum(st_area(out)) 
-
-# 6) dams 
-r.dam.sf <- st_read(dsn=Intersect,layer="R_dams_inte" ) # multipoly
-r.dam.sf = st_transform(r.dam.sf ,3005)
-          ## RANGE: intersect with range and calculate length per range
-          r.dams = st_intersection(b.range,r.dam.sf)   # intersect with ranges
-          r.dams <- st_cast( r.dams , "LINESTRING")
-          r.dams$Length_m = st_length( r.dams)    # calculate the length
-          r.dams.df = data.frame(r.dams)        # calculate the length per range 
-          r.dams.df.out  = r.dams.df %>% 
-            mutate(Dam_length_m = Length_m) %>% 
-            group_by(Range) %>% 
-            summarise(R_Dams_length_m = sum(Dam_length_m))
-          
-          # CORE: intersect with core and calculate length per range
-          c.dams = st_intersection(b.core.r,r.dam.sf)   # intersect with ranges
-          c.dams$Length_m = st_length(c.dams)    # calculate the length
-          c.dams.df = data.frame(c.dams)        # calculate the length per range 
-          c.dams.df.out  = c.dams.df %>% 
-            mutate(Dam_length_m = Length_m) %>% 
-            group_by(Range) %>% 
-            summarise(C_Dams_length_m = sum(Dam_length_m))
-          
-          out.dams = left_join(r.dams.df.out,c.dams.df.out, all = both)
-          out.dams[is.na(out.dams)] <- 0
-          out.dams$P_Dams_length_m = out.dams$R_Dams_length_m - out.dams$C_Dams_length_m
-         
-          range.layer.cals <- left_join(range.layer.cals,out.dams) ; range.layer.cals [is.na(range.layer.cals )] <- 0
-
-          # # UNION 5
-          out.t = st_union(r.dams)
-          out4 = st_union(out,out.t) ; plot(st_geometry(out4))
-          out4 = st_union(out4); plot(st_geometry(out4))
-          st_length(out4)
-          rm(out,out.t)
-          
-# 11) Rail  
-r.rail.sf <- st_read(dsn=Intersect,layer="B_rail_clip") # multipoly
-r.rail.sf = st_transform(r.rail.sf ,3005)
-r.rail.sf <- st_intersection(b.range,r.rail.sf)
+# 1) THEME: Transport ROAD 
+roads <- st_read(dsn=paste(data.dir,Base,sep = ""),layer="TR_Road_B") # reading in as geometry?
+        #roads  = st_cast(roads,"MULTIPOLYGON")  
+        roads.int = st_intersection(b.aoi,roads)   # intersect with ranges
       
-      ## UNION 7 # may need to run this in stand alone R rather than R -studio
-      out7 = st_union(out4,r.rail.sf) ; plot(st_geometry(out7))
-      out7 = st_union(out7); plot(st_geometry(out7))
-      st_length(out7)
-      rm(out4)
-      
-      # 1) RANGE: calculate the range extent to use range extent 
-      r.rail <- st_intersection(b.range,r.tran.sf)# intersect with ranges
-      r.rail$Length_m = st_length(r.rail)
-      r.rail.df = data.frame(r.rail)        # calculate the length per range 
-      r.rail.df.out  = r.rail.df%>% 
-        mutate(Rail_length_m = Length_m) %>% 
-        group_by(Range) %>% 
-        summarise(R_Rail_length_m = sum(Rail_length_m))
-  
-      # 2) CORE; intersect with core and calculate length per range 
-      c.rail.int = st_intersection(b.core.r,r.tran.sf) # intersect with ranges
-      c.rail.int$Length_m = st_length(c.rail.int)
-      c.rail.int.df = data.frame(c.rail.int)        # calculate the length per core/range 
-      c.rail.int.df.out  = c.rail.int.df %>% 
-        mutate(Rail_length_m = Length_m) %>% 
-        group_by(Range) %>% 
-        summarise(C_Rail_length_m = sum(Rail_length_m))
-      
-      out.rail= left_join(r.rail.df.out,c.rail.int.df.out, all = both)
-      out.rail[is.na(out.rail)] <- 0
-      out.rail$P_Rail_length_m = out.rail$R_Rail_length_m - out.rail$C_Rail_length_m
-      
-      range.layer.cals <- left_join(range.layer.cals,out.rail) ; range.layer.cals [is.na(range.layer.cals )] <- 0
-      head(range.layer.cals)
-      
-# so far we have 
-#      - all data in asummary shapefile (out7)
-#      - all data in a table (range.layer.cals)       
-      
-      
-# write out the compiled dataset(out7)     
-    
-out7<- st_cast(out7, "LINESTRING")   
-st_length(out7)
-#st_write(out7, paste(temp.dir,"Dist_Linear_Ex_road_seis.shp",sep = ""))
-      
-# due to the size of the seismic and road files. We will run these seperately for each of the herds, then join table data. 
-# to calculate the "all disturbance" we will run total disturbance (out7) all herds then add road (by herd) and seismic (by herd). 
-# to reduce the time in processing
-      
-#########################################      
-# read in Roads linear features 
-
-# for these you will need to run script 1 (this will export the range extent for the roads. 
-# within Arcmap convert this from polygon to line for example "Temp_roads_cal_line.
-# then read these in (these can be done at the widest range ie boundary)
-
-# note: 
-# ground checked the linear features to ensure the length doesnt count on double lines
-
-# Calander 
-b.road1 = sf::st_read(dsn = Intersect , layer ="Temp_roads_cal_line" ) # multi surface
-b.road1 = st_transform(b.road1,3005)
-    # range
-    b.road1 <- st_intersection(b.range,b.road1)# intersect with ranges
-        # create a dissolved version to add to the "all disturbance layer" 
-        #b.road.u <- st_union(b.road1) 
-        #head(b.road.u)
-    b.road1 <- st_cast(b.road1, "LINESTRING")
-    b.road1$Length_m = st_length(b.road1)
-    #st_is_valid(b.road1)
-    b.road1.df = data.frame(b.road1)        # calculate the length per range 
-    b.road1.df.out  = b.road1.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(R_Road_length_m = sum(Road_length_m))
-# 2) CORE; intersect with core and calculate length per range 
-    b.road1.c <- st_intersection(b.core.r,b.road1)# intersect with ranges
-    b.road1.c <- st_cast(b.road1.c, "LINESTRING")
-    b.road1.c.df = data.frame(b.road1.c)        # calculate the length per range 
-    b.road1.c.df.out  = b.road1.c.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(C_Road_length_m = sum(Road_length_m))
-out.road= left_join(b.road1.df.out,b.road1.c.df.out, all = both)
-out.road[is.na(out.road)] <- 0
-out.road$P_Road_length_m = out.road$R_Road_length_m - out.road$C_Road_length_m
-
-# Maxhamish 
-b.road1 = sf::st_read(dsn = Intersect , layer ="Temp_roads_max_line" ) # multi surface
-b.road1 = st_transform(b.road1,3005)
-    # range
-    b.road1 <- st_intersection(b.range,b.road1)# intersect with ranges
-    
-      # create a dissolved version to add to the "all disturbance layer" 
-      #b.road.u2 <- st_union(b.road1)
-      #st_length(b.road.u); st_length(b.road.u2)
-      #b.road.u.out <- st_union(b.road.u,b.road.u2)
-      #b.road.u.out <- st_union(b.road.u.out)
-      #head(b.road.u.out)
-      #st_length(b.road.u.out)
-      #rm(b.road.u.out)
-      
-    b.road1 <- st_cast(b.road1, "LINESTRING")
-    b.road1$Length_m = st_length(b.road1)
-    #st_is_valid(b.road1)
-    b.road1.df = data.frame(b.road1)        # calculate the length per range 
-    b.road1.df.out  = b.road1.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(R_Road_length_m = sum(Road_length_m))
-    # 2) CORE; intersect with core and calculate length per range 
-    b.road1.c <- st_intersection(b.core.r,b.road1)# intersect with ranges
-    b.road1.c <- st_cast(b.road1.c, "LINESTRING")
-    b.road1.c.df = data.frame(b.road1.c)        # calculate the length per range 
-    b.road1.c.df.out  = b.road1.c.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(C_Road_length_m = sum(Road_length_m))
-
-  out.road1= left_join(b.road1.df.out,b.road1.c.df.out, all = both)
-  out.road1[is.na(out.road1)] <- 0
-  out.road1$P_Road_length_m = out.road1$R_Road_length_m - out.road1$C_Road_length_m
-  # add to other road data: 
-  all.out = rbind(out.road,out.road1)
-
-# West 
-b.road1 = sf::st_read(dsn = Intersect , layer ="Temp_roads_west_line" ) # multi surface
-b.road1 = st_transform(b.road1,3005)
-    # range
-    b.road1 <- st_intersection(b.range,b.road1)# intersect with ranges
+        roads.int$length_m = round(as.numeric(st_length(roads.int)),2) 
+        roads.int.df = data.frame(roads.int) 
+        roads.int.df= roads.int.df %>% 
+          group_by(Range,Zone,ThemeName) %>% 
+          summarise(length_m2 = sum(length_m))
         
-      #b.road.u3 <- st_union(b.road1)
-    
-    b.road1 <- st_cast(b.road1, "LINESTRING")
-    b.road1$Length_m = st_length(b.road1)
-    #st_is_valid(b.road1)
-    b.road1.df = data.frame(b.road1)        # calculate the length per range 
-    b.road1.df.out  = b.road1.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(R_Road_length_m = sum(Road_length_m))
-    # 2) CORE; intersect with core and calculate length per range 
-    b.road1.c <- st_intersection(b.core.r,b.road1)# intersect with ranges
-    b.road1.c <- st_cast(b.road1.c, "LINESTRING")
-    b.road1.c.df = data.frame(b.road1.c)        # calculate the length per range 
-    b.road1.c.df.out  = b.road1.c.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(C_Road_length_m = sum(Road_length_m))
-    out.road1= left_join(b.road1.df.out,b.road1.c.df.out, all = both)
-    out.road1[is.na(out.road1)] <- 0
-    out.road1$P_Road_length_m = out.road1$R_Road_length_m - out.road1$C_Road_length_m
-    # add to other road data: 
-    all.out = rbind(all.out,out.road1)
+        ## not sure if these values are dissolved or not 
+        ## check overlaps
+      
+        ##OUTPUT 2: Individual dist layer (spatial) to be used to make plots in Arcmap 
+        st_write(roads.int,paste(shape.out.dir,"D_roads_int_line.shp")) # generate spatial products
 
-# Snake
-    b.road1 = sf::st_read(dsn = Intersect , layer ="Temp_roads_snake_line" ) # multi surface
-    b.road1 = st_transform(b.road1,3005)
-    # range
-    b.road1 <- st_intersection(b.range,b.road1)# intersect with ranges
-    
-      #b.road.u4 <- st_union(b.road1)
-    
-    b.road1 <- st_cast(b.road1, "LINESTRING")
-    b.road1$Length_m = st_length(b.road1)
-    #st_is_valid(b.road1)
-    b.road1.df = data.frame(b.road1)        # calculate the length per range 
-    b.road1.df.out  = b.road1.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(R_Road_length_m = sum(Road_length_m))
-    # 2) CORE; intersect with core and calculate length per range 
-    b.road1.c <- st_intersection(b.core.r,b.road1)# intersect with ranges
-    b.road1.c <- st_cast(b.road1.c, "LINESTRING")
-    b.road1.c.df = data.frame(b.road1.c)        # calculate the length per range 
-    b.road1.c.df.out  = b.road1.c.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(C_Road_length_m = sum(Road_length_m))
-    out.road1= left_join(b.road1.df.out,b.road1.c.df.out, all = both)
-    out.road1[is.na(out.road1)] <- 0
-    out.road1$P_Road_length_m = out.road1$R_Road_length_m - out.road1$C_Road_length_m
-    # add to other road data: 
-    all.out = rbind(all.out,out.road1)
+        ##OUTPUT 1 : DATA table
+        out.tab <- bind_rows(out.tab,roads.int.df)   ## add to table Herd key
+        
+        
+#### Cut lines: 
+seis <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="CU_Cut_B_l") # reading in as geometry?      
+        #seis <-st_make_valid(seis)
+        seis.int = st_intersection(b.aoi,seis)   # intersect with ranges
+        seis.int$length_m = round(as.numeric(st_length(seis.int)),2) 
+        #seis.int$Area_ha <- round(as.numeric(st_area(seis.int)/10000),2)
+        seis.int.df = data.frame(seis.int) 
+        seis.int.df= seis.int.df %>% 
+          group_by(Range,Zone,ThemeName) %>% 
+          summarise(length_m2 = sum(length_m))
+        ##OUTPUT 1 : DATA table
+        out.tab <- bind_rows(out.tab,seis.int.df)   ## add to table Herd key 
+        st_write(seis.int,paste(shape.out.dir,"D_seis_int_line.shp")) # generate spatial products
+        
+        #clean up afterwards
+        rm(seis,seis.int)
 
-# chinchaga
-b.road1 = sf::st_read(dsn = Intersect , layer ="Temp_roads_chin_line" ) # multi surface
-b.road1 = st_transform(b.road1,3005)
-    # range
-    b.road1 <- st_intersection(b.range,b.road1)# intersect with ranges
-     # create a dissolved version for the "all disturbance"
-      #b.road.u5 <- st_union(b.road1)
-    
-      b.road1 <- st_cast(b.road1, "LINESTRING")
-    b.road1$Length_m = st_length(b.road1)
-    #st_is_valid(b.road1)
-    b.road1.df = data.frame(b.road1)        # calculate the length per range 
-    b.road1.df.out  = b.road1.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(R_Road_length_m = sum(Road_length_m))
-    # 2) CORE; intersect with core and calculate length per range 
-    b.road1.c <- st_intersection(b.core.r,b.road1)# intersect with ranges
-    b.road1.c <- st_cast(b.road1.c, "LINESTRING")
-    b.road1.c.df = data.frame(b.road1.c)        # calculate the length per range 
-    b.road1.c.df.out  = b.road1.c.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(C_Road_length_m = sum(Road_length_m))
-    out.road1= left_join(b.road1.df.out,b.road1.c.df.out, all = both)
-    out.road1[is.na(out.road1)] <- 0
-    out.road1$P_Road_length_m = out.road1$R_Road_length_m - out.road1$C_Road_length_m
-    # add to other road data: 
-    all.out = rbind(all.out,out.road1)
-    all.out = all.out[-c(3,5),]
-    
-# add the roads layer to all other layers 
-range.layer.cals <- left_join(all.out,range.layer.cals) ; range.layer.cals [is.na(range.layer.cals )] <- 0
+# Trails   
+trail <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="CU_Trail_B") # reading in as geometry?      
+        
+          trail<-st_make_valid(trail)
+          trail.int = st_intersection(b.aoi,trail)   # intersect with ranges
+          trail.int$length_m = round(as.numeric(st_length(trail.int)),2) 
+          
+          # plot(st_geometry(seis.int))
+          trail.int.df = data.frame(trail.int) 
+          trail.int.df = trail.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(length_m2 = sum(length_m))
+          
+          trail.int.df 
+          
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,trail.int.df)   ## add to table Herd key 
+          st_write(trail.int,paste(shape.out.dir,"D_trail_int_line.shp")) # generate spatial products
+          
+          #clean up afterwards
+          rm(trail,trail.int)
 
-write.csv(range.layer.cals,paste(temp.dir,"Linear_disturbance_RPC.csv"))
-
-# uo to here we have 
-# all disturbance (out7) + b.road.u - b.road.u5 (one per herd)
-
-## Seismic lines 
-## After months of trying to get this to run (slow GTS/incorrect geometry for the arcmap outputs )
-## Unable to get this to work sufficiently so will need to do this independently in ArcMap for each herd due to the size of the files. 
-## Went back to original data sets and clipped tot area of range, then merged the files and these will be read in below: 
-
-## Herd 1) 
-## maxhamish  
-b.s1 = sf::st_read(dsn = Intersect , layer ="R_Seis_Max_4") 
-b.s1  = st_transform(b.s1,3005)
-    # 1) range
-    b.road1 <- st_intersection(b.range,b.s1)# intersect with ranges
-    
-    #create a dissolved version for the "all disturbance layer"
-    #b.seis.u <- st_union(b.road1)
-    
-    b.road1 <- st_cast(b.road1, "LINESTRING")
-    b.road1$Length_m = st_length(b.road1)
-    b.road1.df = data.frame(b.road1)        # calculate the length per range 
-    b.road1.df.out  = b.road1.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(R_Seis_length_m = sum(Road_length_m))
-
-    # 2) CORE; intersect with core and calculate length per range 
-    b.road1.c <- st_intersection(b.core.r,b.s1)# intersect with ranges
-    b.road1.c <- st_cast(b.road1.c, "LINESTRING")
-    b.road1.c$Length_m = st_length(b.road1.c)
-    b.road1.c.df = data.frame(b.road1.c)        # calculate the length per range 
-    b.road1.c.df.out  = b.road1.c.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(C_Seis_length_m = sum(Road_length_m))
-    
-    out.road1= left_join(b.road1.df.out,b.road1.c.df.out, all = both)
-    out.road1[is.na(out.road1)] <- 0
-    out.road1$P_Seis_length_m = out.road1$R_Seis_length_m - out.road1$C_Seis_length_m
-    all.out = out.road1
-    all.out = all.out[1,]
-    
-## herd 2)  ## Snake 
-b.s1 = sf::st_read(dsn = Intersect , layer ="Snake_Seis_misc_Merge") 
-b.s1  = st_transform(b.s1 ,3005)
-    # 1) range
-    b.road1 <- st_intersection(b.range,b.s1) # intersect with ranges # this takes a long time run outside r-studio if possible. 
-        #create a dissolved version for the "all disturbance layer"
-        #b.seis.u2 <- st_union(b.road1)
-    b.road1 <- st_cast(b.road1, "LINESTRING")
-    b.road1$Length_m = st_length(b.road1)
-    b.road1.df = data.frame(b.road1)        # calculate the length per range 
-    b.road1.df.out  = b.road1.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(R_Seis_length_m = sum(Road_length_m))
-    
-    # 2) CORE; intersect with core and calculate length per range 
-    b.road1.c <- st_intersection(b.core.r,b.s1)# intersect with ranges
-    b.road1.c <- st_cast(b.road1.c, "LINESTRING")
-    b.road1.c$Length_m = st_length(b.road1.c)
-    b.road1.c.df = data.frame(b.road1.c)        # calculate the length per range 
-    b.road1.c.df.out  = b.road1.c.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(C_Seis_length_m = sum(Road_length_m))
-    
-    out.road1= left_join(b.road1.df.out,b.road1.c.df.out, all = both)
-    out.road1[is.na(out.road1)] <- 0
-    out.road1$P_Seis_length_m = out.road1$R_Seis_length_m - out.road1$C_Seis_length_m
-    all.out= rbind(all.out,out.road1)
-    all.out = all.out[-c(2,3),]
-
-    #x = all.out
-    
-## herd 3)  ##Cal 
-    b.s1 = sf::st_read(dsn = Intersect , layer ="Cal_Seis_misc_Merge") 
-    b.s1  = st_transform(b.s1 ,3005)
-    # 1) range
-    b.road1 <- st_intersection(b.range,b.s1) # intersect with ranges # this takes a long time run outside r-studio if possible. 
-    #create a dissolved version for the "all disturbance layer"
-    b.road1 <- st_cast(b.road1, "LINESTRING")
-    b.road1$Length_m = st_length(b.road1)
-    b.road1.df = data.frame(b.road1)        # calculate the length per range 
-    b.road1.df.out  = b.road1.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(R_Seis_length_m = sum(Road_length_m))
-    
-    # 2) CORE; intersect with core and calculate length per range 
-    b.road1.c <- st_intersection(b.core.r,b.s1)# intersect with ranges
-    b.road1.c <- st_cast(b.road1.c, "LINESTRING")
-    b.road1.c$Length_m = st_length(b.road1.c)
-    b.road1.c.df = data.frame(b.road1.c)        # calculate the length per range 
-    b.road1.c.df.out  = b.road1.c.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(C_Seis_length_m = sum(Road_length_m))
-    
-    out.road1= left_join(b.road1.df.out,b.road1.c.df.out, all = both)
-    out.road1[is.na(out.road1)] <- 0
-    out.road1$P_Seis_length_m = out.road1$R_Seis_length_m - out.road1$C_Seis_length_m
-    out.road1 = out.road1[1,]
-  
-    # add to other road data: 
-    all.out = rbind(all.out,out.road1)
-    #x = all.out 
-
-## herd 4) # west 
-    b.s1 = sf::st_read(dsn = Intersect , layer ="West_Seis_misc_Merge")  
-    b.s1  = st_transform(b.s1 ,3005)
-    # 1) range
-    b.road1 <- st_intersection(b.range,b.s1) # intersect with ranges # this takes a long time run outside r-studio if possible. 
-    #create a dissolved version for the "all disturbance layer"
-    b.road1 <- st_cast(b.road1, "LINESTRING")
-    b.road1$Length_m = st_length(b.road1)
-    b.road1.df = data.frame(b.road1)        # calculate the length per range 
-    b.road1.df.out  = b.road1.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(R_Seis_length_m = sum(Road_length_m))
-    
-    # 2) CORE; intersect with core and calculate length per range 
-    b.road1.c <- st_intersection(b.core.r,b.s1)# intersect with ranges
-    b.road1.c <- st_cast(b.road1.c, "LINESTRING")
-    b.road1.c$Length_m = st_length(b.road1.c)
-    b.road1.c.df = data.frame(b.road1.c)        # calculate the length per range 
-    b.road1.c.df.out  = b.road1.c.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(C_Seis_length_m = sum(Road_length_m))
-    
-    out.road1= left_join(b.road1.df.out,b.road1.c.df.out, all = both)
-    out.road1[is.na(out.road1)] <- 0
-    out.road1$P_Seis_length_m = out.road1$R_Seis_length_m - out.road1$C_Seis_length_m
-    
-    #out.road1 = out.road1[,]
-    # add to other road data: 
-    all.out = rbind(all.out,out.road1)
-    x = all.out
-
-    ## herd 5) # Chin 
-    b.s1 = sf::st_read(dsn = Intersect , layer ="Chin_Seis_misc_Merge") 
-    b.s1  = st_transform(b.s1 ,3005)
-    # 1) range
-    b.road1 <- st_intersection(b.range,b.s1) # intersect with ranges # this takes a long time run outside r-studio if possible. 
-    #create a dissolved version for the "all disturbance layer"
-    b.road1 <- st_cast(b.road1, "LINESTRING")
-    b.road1$Length_m = st_length(b.road1)
-    b.road1.df = data.frame(b.road1)        # calculate the length per range 
-    b.road1.df.out  = b.road1.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(R_Seis_length_m = sum(Road_length_m))
-    
-    # 2) CORE; intersect with core and calculate length per range 
-    b.road1.c <- st_intersection(b.core.r,b.s1)# intersect with ranges
-    b.road1.c <- st_cast(b.road1.c, "LINESTRING")
-    b.road1.c$Length_m = st_length(b.road1.c)
-    b.road1.c.df = data.frame(b.road1.c)        # calculate the length per range 
-    b.road1.c.df.out  = b.road1.c.df%>% 
-      mutate(Road_length_m = Length_m) %>% 
-      group_by(Range) %>% 
-      summarise(C_Seis_length_m = sum(Road_length_m))
-    
-    out.road1= left_join(b.road1.df.out,b.road1.c.df.out, all = both)
-    out.road1[is.na(out.road1)] <- 0
-    out.road1$P_Seis_length_m = out.road1$R_Seis_length_m - out.road1$C_Seis_length_m
-    
-    # add to other road data: 
-    all.out = rbind(all.out,out.road1)
-    
-    
-# add the roads layer to all other layers 
-
-range.layer.cals <- left_join(all.out,range.layer.cals) ; range.layer.cals [is.na(range.layer.cals )] <- 0
-write.csv(range.layer.cals,paste(temp.dir,"Linear_disturbance_RPC.csv"))
+# rail 
+rail <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="TR_Rail_B") # reading in as geometry?      
+           #st_is_valid(rail)
+          rail <- st_make_valid(rail)
+          rail.int = st_intersection(b.aoi,rail)   # intersect with ranges
+          
+          rail.int$length_m = round(as.numeric(st_length(rail.int)),2) 
+          ## fix this 
+          rail.int.df = data.frame(rail.int) 
+          rail.int.df = rail.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(length_m2 = sum(length_m))
+          
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,rail.int.df)   ## add to table Herd key 
+          st_write(rail.int,paste(shape.out.dir,"D_rail_int_line.shp")) # generate spatial products
+          
+          #clean up afterwards
+          rm(rail,rail.int)
+          
+          
+write.csv(out.tab,paste(out.dir,"out.length.table.csv",sep = ""),row.names = FALSE)
 
 
-## make memory room!
-#rm('out1','out2','out3','out4','out5','out6','out7','r.agr.sf','r.air.sf','r.dam.sf','r.mine.sf')
-#rm('r.pipe','r.rail.sf','r.rec.sf','r.tran','r.tran.sf','r.urban.sf','r.wells.sf')
-#rm('b.r.c0.80')
+###################################################################################
+## All linear compiled data  as compiled by RSEA level C version 
+###################################################################################
 
-### To calculate the total linear features ArcMap was used to merge the output (out7) with the road and seismic layers (the same as those read in)
-### The layers are merged, then dissolved to calculate a total (non-overlapping ) length 
-### these are then output into a csv files "Total_linear_dis_edit.csv" 
+## linear level C:" AOI_anth_C_linear" 
 
-# final 
-#range.layer.cals 
-#Herd_key
+# 1) THEME: all linear combined 
+anth <- st_read(dsn=paste(data.dir,Base,sep = ""),layer="AOI_anth_C_linear") # reading in as geometry?
+      anth.int = st_intersection(b.aoi,anth)   # intersect with ranges
 
 
+## up to here
+
+
+#roads  = st_cast(roads,"MULTIPOLYGON")  
+roads.int = st_intersection(b.aoi,roads)   # intersect with ranges
+
+roads.int$length_m = round(as.numeric(st_length(roads.int)),2) 
+roads.int.df = data.frame(roads.int) 
+roads.int.df= roads.int.df %>% 
+  group_by(Range,Zone,ThemeName) %>% 
+  summarise(length_m2 = sum(length_m))
+
+## not sure if these values are dissolved or not 
+## check overlaps
+
+##OUTPUT 2: Individual dist layer (spatial) to be used to make plots in Arcmap 
+st_write(roads.int,paste(shape.out.dir,"D_roads_int_line.shp")) # generate spatial products
+
+##OUTPUT 1 : DATA table
+out.tab <- bind_rows(out.tab,roads.int.df)   ## add to table Herd key
+
+
+
+
+
+
+
+
+
+
+
+
+
+          
+          
 #################################################################################################
 ## Create length and density tables for Core, Periphery and Range for disturbance linear features
 #################################################################################################
 
-total.dis = read.csv(paste(temp.dir,"Total_linear_dis_edit.csv",sep = '')) 
 
-l.range = read.csv(paste(temp.dir," Linear_disturbance_RPC.csv",sep = '')) 
-## or this if you are running the top part of script in the same session 
-#l.range  = range.layer.cals
 
-all.out = left_join(l.range,total.dis)
 
-# convert Ha to kms2
-Herd_key_km <- Herd_key %>% 
-  mutate(R_area_km2 = R_area_ha/100, P_area_km2 = P_area_ha/100,C_area_km2 = C_area_ha/100) %>% 
-  dplyr::select(-c(R_area_ha,P_area_ha,C_area_ha))
 
-all.out <- left_join(Herd_key_km,all.out)
-all.out[is.na(all.out)] <- 0
+
+
+          
+          
+out.tab <- read.csv(paste(out.dir,"out.length.table.csv",sep = ""))
+
+
+## reshape the long version of the table ? now or later 
+
+## calculate the length (km) and density (km2) 
+
+
+
 
 
 all.outl = reshape2::melt(all.out)
