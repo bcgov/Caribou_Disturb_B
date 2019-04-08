@@ -135,7 +135,6 @@ roads <- st_read(dsn=paste(data.dir,Base,sep = ""),layer="TR_Road_B") # reading 
         ##OUTPUT 1 : DATA table
         out.tab <- bind_rows(out.tab,roads.int.df)   ## add to table Herd key
         
-        
 #### Cut lines: 
 seis <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="CU_Cut_B_l") # reading in as geometry?      
         #seis <-st_make_valid(seis)
@@ -208,143 +207,81 @@ write.csv(out.tab,paste(out.dir,"out.length.table.csv",sep = ""),row.names = FAL
 # 1) THEME: all linear combined 
 anth <- st_read(dsn=paste(data.dir,Base,sep = ""),layer="AOI_anth_C_linear") # reading in as geometry?
       anth.int = st_intersection(b.aoi,anth)   # intersect with ranges
+      anth.int$length_m = round(as.numeric(st_length(anth.int)),2) 
 
+      anth.int.df = data.frame(anth.int) 
+      anth.int.df = anth.int.df %>% 
+        group_by(Range,Zone,ThemeName) %>% 
+        summarise(length_m2 = sum(length_m))
+      
+      # combined all 
+      anth.int.df.all = data.frame(anth.int) 
+      anth.int.df.all = anth.int.df.all %>% 
+        group_by(Range,Zone) %>% 
+        summarise(length_m2 = sum(length_m))
+      
+      anth.int.df.all$ThemeName = "Anth_C" 
+      
+      ##OUTPUT 2: Individual dist layer (spatial) to be used to make plots in Arcmap 
+      st_write(anth.int,paste(shape.out.dir,"D_Anth_int_line.shp")) # generate spatial products
 
-## up to here
-
-
-#roads  = st_cast(roads,"MULTIPOLYGON")  
-roads.int = st_intersection(b.aoi,roads)   # intersect with ranges
-
-roads.int$length_m = round(as.numeric(st_length(roads.int)),2) 
-roads.int.df = data.frame(roads.int) 
-roads.int.df= roads.int.df %>% 
-  group_by(Range,Zone,ThemeName) %>% 
-  summarise(length_m2 = sum(length_m))
-
-## not sure if these values are dissolved or not 
-## check overlaps
-
-##OUTPUT 2: Individual dist layer (spatial) to be used to make plots in Arcmap 
-st_write(roads.int,paste(shape.out.dir,"D_roads_int_line.shp")) # generate spatial products
-
-##OUTPUT 1 : DATA table
-out.tab <- bind_rows(out.tab,roads.int.df)   ## add to table Herd key
-
-
-
-
-
-
-
-
-
-
-
-
-
-          
+      out.tab <- bind_rows(out.tab, anth.int.df.all) 
+      
+write.csv(out.tab,paste(out.dir,"out.length.table.csv",sep = ""),row.names = FALSE)
+      
           
 #################################################################################################
 ## Create length and density tables for Core, Periphery and Range for disturbance linear features
 #################################################################################################
-
-
-
-
-
-
-
-          
           
 out.tab <- read.csv(paste(out.dir,"out.length.table.csv",sep = ""))
-
-
-## reshape the long version of the table ? now or later 
-
+out.tab <- merge(out.tab,Herd_key, by= c('Range','Zone')) # add the size of the areas
 ## calculate the length (km) and density (km2) 
+out.tab <- out.tab %>% mutate(length_km = round(length_m2/1000,2), 
+                              Area_km2 = round(Area_ha.y/100,2),
+                              density_km_km2 = round(length_km/ Area_km2,2))  
 
+out.tab <- out.tab %>% dplyr::select(Range,Zone,ThemeName.x,length_km,density_km_km2)
 
-
-
-
-all.outl = reshape2::melt(all.out)
-all.outl<- all.outl %>% 
-    mutate(Dist_type = gsub(".*R_|_length.*","", variable)) %>%
-    mutate(Dist_type = gsub("C_","",Dist_type)) %>%
-    mutate(Dist_type = gsub("P_","",Dist_type)) %>%
-    mutate(Boundary = substring(variable,1,1)) 
-   
-  lr = all.outl  %>% gather(key = variable, value = value, 3) 
-
-# output density tables
-herds = c('Calendar','Chinchaga','Maxhamish','Snake-Sahtahneh','Westside Fort Nelson')
-
-for (i in herds) { 
-  # write out core area details. 
-  t.l = lr %>% filter(Range == paste(i))
-    # get the total areas (km2 to calculate density)
-    t.r = t.l %>% filter(Boundary =='R' & Dist_type == "area_km2") %>%  dplyr::select(value)
-    t.p = t.l %>% filter(Boundary =='P' & Dist_type == "area_km2") %>%  dplyr::select(value)
-    t.c = t.l %>% filter(Boundary =='C' & Dist_type == "area_km2") %>%  dplyr::select(value)
-  # add columns to the totals for RPC  
-  t.l <- t.l %>% mutate(Total_area_km2 = ifelse(Boundary =='R',t.r,
-                                     ifelse(Boundary =='P',t.p,
-                                     ifelse(Boundary == 'C',t.c,0))))
-  # calculate the length (km) and density (km2) 
-  t.l <- t.l %>% 
-    mutate(Length_km = value/1000) %>% 
-    mutate(Density_km_km2 = Length_km / as.numeric(Total_area_km2)) %>%
-    dplyr::select(-c(variable, value)) 
- 
-   # this creates a table with the Total areas (Total_area_km2) for eqach of the range/core/periphery
-  #t.total <- t.l %>% 
-  #  dplyr::filter(Dist_type == "Road") %>%
-  #  dplyr::select(-c(Length_km,Density_km_km2,Dist_type)) %>%  
-  #  spread(key = Boundary,value = Total_area_km2) 
-
-   # get rid of the area_total rows and random X row
-  t.l = t.l[-(grep("area_km2",t.l$Dist_type)),]
-  t.l = t.l[-(grep("X",t.l$Dist_type)),]
-  t.l = t.l %>% dplyr::select(-c(Total_area_km2))
   
-  t.length <- t.l %>% 
-  dplyr::select(-c(Density_km_km2)) %>%  
-  spread(.,key = Boundary,value = Length_km)
-  
-  write.csv(t.length, paste(out.dir,i,"_Disturb_RCP_length.csv",sep = ''))
-  
-  t.density = t.l %>% 
-    dplyr::select(-c(Length_km)) %>%  
-    spread(.,key = Boundary,value = Density_km_km2)
-    
-  # write out the csv   
-  write.csv(t.density, paste(out.dir,i,"_Disturb_RCP_density.csv",sep = ''))
-  
-} 
-  
-  
-### Ammalgamate the length and density files and calculate a % of each of the component in excel ### 
+final.data.table <- as.data.frame(unique(out.tab$ThemeName))
+colnames(final.data.table)= 'ThemeName.x'
+
+#loop through the herds
+herds <- as.character(unique(out.tab$Range))
+
+for(i in 1:8){ 
+ # i = 1
+  h = herds[i]
+  tdata <- out.tab %>% dplyr::filter(Range == paste(h))
+  tdata.length <- tdata %>% dplyr::select(Range,Zone,ThemeName.x,length_km) %>% spread(.,key = Zone,value = length_km)
+  tdata.density <- tdata %>% dplyr::select(Range,Zone,ThemeName.x,density_km_km2) %>% spread(.,key = Zone,value = density_km_km2)
+  tdata.out <- merge(tdata.length,tdata.density,by=c('ThemeName.x'))
+  tdata.out <-tdata.out %>% dplyr::select(-(Range.y))
+  final.table<- left_join(final.data.table,tdata.out)
+  write.csv(final.table,paste(out.dir,h,"_density.sum.csv",sep = ""),row.names = FALSE)
+}
+
+
+# Reformat into table for report 
+###################################################################
+
+
 
  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
- 
+
+
+
+
+
+
+
 
 
  
   
   
-##################### OLD SCRIPTING  ##########################################  
+##################### OLD SCRIPTING FOR PLOTS  ##########################################  
   
 
  ## OLD PLOT INFO  
@@ -418,90 +355,12 @@ out.l = out.l %>%
 
 out.l = out.l %>% dplyr::select(-c(R_area_ha,C_area_ha,P_area_ha))
 
-write.csv(out.l, paste(out.dir,"Disturb_RCP_length_density.csv",sep = ''))
-
-
-
+write.csv(out.l, paste(out.dir,"Disturb_RCP_length_density.csv",sep = '')
 
 
     mutate(Disturbance_km = ifelse(grep("_ha",variable),variable/100,variable*100))
            
 # create a table with disturbance length (km) , density (km/km2) and 
-
-
-# table with total linear 
-
-l.range = l.range %>% 
-  mutate(R_Pipe_length_km = R_Pipe_length_m*1000)  %>% 
-  mutate(C_Pipe_length_km = C_Pipe_length_m *1000) %>% 
-  mutate(Maxhamish = Maxhamish/1000) %>%
-  mutate(Snake.Sahtahneh = Snake.Sahtahneh/1000)  %>% 
-  mutate(Westside.Fort.Nelson = Westside.Fort.Nelson/1000)
-
-# convert to km/km2  = 1 km2 = 100 ha 
-l.rangel = reshape2::melt(l.range)
-
-l.rangel$range = l.rangel$value
-l.core = read.csv(paste(out.dir,"Disturbance_length_core_by_ranges.csv",sep = ""))
-l.core = l.core %>% dplyr::select(-(X))
-l.core = l.core %>% mutate(Calendar = Calendar/1000)  %>% 
-  mutate(Chinchaga = Chinchaga/1000) %>% 
-  mutate(Maxhamish = Maxhamish/1000) %>%
-  mutate(Snake.Sahtahneh = Snake.Sahtahneh/1000)  %>% 
-  mutate(Westside.Fort.Nelson = Westside.Fort.Nelson/1000)
-l.corel = reshape2::melt(l.core)
-l.corel$core = l.corel$value
-out = merge(l.rangel,l.corel, by = c("Type",'variable'))
-out = out %>% dplyr::select(-c(value.x,value.y))
-
-out = out %>% dplyr::filter(!(grepl(pattern = 'Dams',Type)))
-out$peri = out$range-out$core
-
-out.l = left_join(out,Herd_key, by = c('variable' = 'Range'))
-out.l = out.l %>% 
-  mutate(range.l = range/ (R_area_ha/100))%>%
-  mutate(per.l = peri/ (P_area_ha/100))%>%
-  mutate(core.l = core/ (C_area_ha/100))
-
-out.l = out.l %>% dplyr::select(-c(R_area_ha,C_area_ha,P_area_ha))
-
-write.csv(out.l, paste(out.dir,"Disturb_RCP_length_density.csv",sep = ''))
-
-
-##########################################################################
-# Join the data to spatial data and map by density 
-
-out.d = out.l %>% dplyr::select(-c(range,core,peri))
-out.d$Range = out.d$variable 
-out.d$Range = gsub('Snake.Sahtahneh','Snake-Sahtahneh', out.d$Range) 
-out.d$Range = gsub('Westside.Fort.Nelson','Westside Fort Nelson', out.d$Range) 
-
-merged = merge(b.range.sf,out.d, by = "Range")
-merged <- st_as_sf(merged)
-
-merged.all <- merged %>% group_by(Range) %>% summarise(range.all = sum(range.l), per.all = sum(per.l), core.all = sum(core.l))
-
-
-p1 = ggplot() + geom_sf(data = merged.all, aes(fill = range.all)) + ggtitle("Range") + theme_bw()
-p1  = p1 + guides(fill=guide_legend(title="Density (km/km2"))
-
-p2 = ggplot() + geom_sf(data = merged.all, aes(fill = per.all)) + ggtitle("Periphery") + theme_bw()
-p2  = p2 + guides(fill=guide_legend(title="Density (km/km2"))
-
-p3 = ggplot() + geom_sf(data = merged.all, aes(fill = core.all)) + ggtitle("Core") + theme_bw()
-p3  = p3 + guides(fill=guide_legend(title="Density (km/km2"))
-
-
-p <- cowplot::plot_grid(p1,p2,p3, ncol = 3)
-
-ggsave(paste(out.dir,"Linear_density_RPC.png",sep = ""),p)
-
-
-
-
-
-
-
 
 
 
