@@ -175,21 +175,191 @@ write.csv(out.tab.pc,paste(out.dir,"fire_temp_formated_pc.csv",sep = ""))
 
 #########################################################################################################################
 
+## CReate plots 
+
+fire.ranges <- as.character(unique(fire.040$Range)) 
+for (i in 1:length(fire.ranges)){ 
+  # i = 1
+  herd.oi <-fire.ranges[i] 
+  
+  tdata<- fire.040 %>% filter(Range == paste(herd.oi)) # subset fire data for aeach herd
+  tdata.aoi.C <- b.aoi %>%  filter(Range ==paste(herd.oi) & Zone == 'C')
+  tdata.aoi.A <- b.aoi %>%  filter(Range ==paste(herd.oi) & Zone == 'A')
+  # tdata.aoi. <- b.aoi %>%  filter(Range ==paste(herd.oi))  
+  
+  p1 = ggplot() + 
+    geom_sf(data =  tdata.aoi.C , fill = "grey94") + 
+    geom_sf(data =  tdata.aoi.A , fill = "grey96") + 
+    #geom_sf(data = r.temp, aes(fill =dec.period)) + ggtitle("Natural Disturbance per Herd Range") + theme_bw()
+    geom_sf(data = tdata,fill = "red") + facet_grid(.~dec.period)+  ggtitle(paste("Burns Per Decade within the ",herd.oi," herd boundary",sep = "")) + 
+    theme_bw() 
+  p1
+  ggsave(paste(out.dir,herd.oi,"_burns_temporal.jpg",sep = ""),width = 30, height = 15, units = "cm")  
+}
+
+
+
+
+
+
+#########################################################################################################################
+
+
 ## CUT BLOCKS 
 
+#########################################################################################################################
+
+Herd_key$ThemeName = "Total_Area"
+Herd_key <- Herd_key %>% dplyr::select(Range, Zone, ThemeName, Area_ha) 
+out.tab <- Herd_key 
+
+cut<-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="IN_FOR_Yr_b") # reading in as geometry?      
+cut.int = st_intersection(b.aoi,cut)   # intersect with ranges
+cut.int<- st_make_valid(cut.int)
+cut.int$TimeSinceCut = 2018-cut.int$HARVEST_YEAR  # add time since burn 
+
+# Break up into temporal sections : 
+
+# add a column to differentiate the age brackets of cutblocks 
+cut.int<- mutate(cut.int,dec.period = ifelse(HARVEST_YEAR >= 1958 & HARVEST_YEAR<= 1967,1958,
+                                               ifelse(HARVEST_YEAR >= 1968 & HARVEST_YEAR <= 1977,1968,     
+                                                      ifelse(HARVEST_YEAR >= 1978 & HARVEST_YEAR <= 1987,1978,      
+                                                             ifelse(HARVEST_YEAR>= 1988 & HARVEST_YEAR <= 1997,1988,       
+                                                                    ifelse(HARVEST_YEAR >= 1998 & HARVEST_YEAR <= 2007,1998,
+                                                                           ifelse(HARVEST_YEAR >= 2008 & HARVEST_YEAR <= 2018,2008,0)))))))
+
+##Pl;ot the data to see spread of fires.  Note this is just using the 
+#p = ggplot(fire.int,aes(dec.period)) + geom_bar() + facet_wrap(~Range) + scale_x_continuous(limits = c(1940,2018))
 
 
+# get the fires in the last 40 years: 
+cut.040 <- cut.int %>% filter(dec.period >= 1978)
+
+decades <- c(unique(cut.040$dec.period)) 
+cut.ranges <- as.character(unique(cut.040$Range)) 
+
+for (i in 2:length(decades)){ 
+ # i = 1
+  y = decades[i]
+  tdata <- cut.040 %>% filter(dec.period == paste(y))
+  tdata <- st_union(tdata)
+  tdata <- st_intersection(b.aoi,tdata)
+  #plot(st_geometry(tdata))
+  
+  tdata$Area_ha <- round(as.numeric(st_area(tdata)/10000),2)
+  tdata.df = data.frame(tdata) 
+  tdata.df = tdata.df %>% 
+    group_by(Range,Zone) %>% 
+    summarise(Area_ha = sum(Area_ha))
+  tdata.df$Decade = paste(y)
+  
+  # add each time period to overall table
+  out.tab <- left_join(out.tab,tdata.df, by = c('Range','Zone'))
+} 
+
+write.csv(out.tab, paste(out.dir,"cut_temp_data.csv",sep = ""),row.names= FALSE)
 
 
+######################
+
+## Clean up this table 
+
+out.tab <- read.csv(paste(out.dir,"cut_temp_data.csv",sep = ""))
+out.tab <- out.tab %>% mutate(Area_pc_1978 = round(Area_ha.y/ Area_ha.x*100,2),
+                              Area_pc_1988 = round(Area_ha.x.x/ Area_ha.x*100,2),
+                              Area_pc_1998 = round(Area_ha.y.y/ Area_ha.x*100,2),
+                              Area_pc_2008 = round(Area_ha/Area_ha.x*100,2),
+                              Area_ha_1978 = Area_ha.y,
+                              Area_ha_1988 = Area_ha.x.x,
+                              Area_ha_1998 = Area_ha.y.y,
+                              Area_ha_2008 = Area_ha)
 
 
+out.tab.ha <-out.tab %>% dplyr::select(Range,Zone,Area_ha.x,Area_ha_1978,Area_ha_1988, Area_ha_1998, Area_ha_2008)
+out.tab.pc <-out.tab %>% dplyr::select(Range,Zone,Area_pc_1978,Area_pc_1988, Area_pc_1998, Area_pc_2008)
+
+# format the tabel 
+out.tab.ha <- as.data.frame(t(out.tab.ha))
+out.tab.pc <- as.data.frame(t(out.tab.pc))
+# write out 
+write.csv(out.tab.ha,paste(out.dir,"cut_temp_formated_ha.csv",sep = ""))
+write.csv(out.tab.pc,paste(out.dir,"cut_temp_formated_pc.csv",sep = ""))
 
 
+############################################################################
+# PLot the cut blocks ## 
+# spatially 
+
+for (i in 1:length(cut.ranges)){ 
+  herd.oi <-cut.ranges[i] 
+  
+  tdata<- cut.040 %>% filter(Range == paste(herd.oi)) # subset fire data for aeach herd
+  tdata.aoi.C <- b.aoi %>%  filter(Range ==paste(herd.oi) & Zone == 'C')
+  tdata.aoi.A <- b.aoi %>%  filter(Range ==paste(herd.oi) & Zone == 'A')
+  # tdata.aoi. <- b.aoi %>%  filter(Range ==paste(herd.oi))  
+  
+  p1 = ggplot() + 
+    geom_sf(data =  tdata.aoi.C , fill = "grey94") + 
+    geom_sf(data =  tdata.aoi.A , fill = "grey96") + 
+    #geom_sf(data = r.temp, aes(fill =dec.period)) + ggtitle("Natural Disturbance per Herd Range") + theme_bw()
+    geom_sf(data = tdata,fill = "red") + facet_grid(.~dec.period)+  ggtitle(paste("Cut Blocks Per Decade within the ",herd.oi," herd boundary",sep = "")) + 
+    theme_bw() 
+  p1
+  ggsave(paste(out.dir,herd.oi,"_cut_temporal.jpg",sep = ""),width = 30, height = 15, units = "cm")  
+}
 
 
+####### Bar chart plots 
+#######
+## bar charts
+out.tab.ha <- as.data.frame(t(out.tab.ha))
+cut.ranges <- as.character(unique(out.tab.ha$Range)) 
 
+out.tab.pc<- as.data.frame(t(out.tab.pc))
 
+for (i in 1:length(cut.ranges)){ 
+ i = 1
+   herd.oi <-cut.ranges[i] 
+  tdata <- out.tab.pc %>% filter(Range == herd.oi)
+  
+  
+  
+if(length(t.c.c$Range)>0){
+  # plot 1
+  p = ggplot(out.tab.pc, aes(Decade,value)) + try(facet_wrap(~var_name))+ geom_bar(stat = 'identity') 
+  p = p + ylab("Percentage") + xlab("Decade") + ggtitle(paste("Percent Cutblock (per area) from 1958 - 2017 (",i," herd)",sep = "" ))
+  p = p + theme_bw()
+  ggsave(paste(out.dir,i,"_cutblock_temp1.png",sep = ""))  
+  # plot 2
+  #p1 = ggplot(t.c.c, aes(var_name,value)) + facet_wrap(~Decade)+ geom_bar(stat = 'identity') 
+  #p1 = p1 + ylab("Percentage") + xlab("") + ggtitle(paste("Percent Cutblock (per area) from 1958 - 2017 (",i," herd)",sep = "" ))
+  #p1 = p1 + theme_bw()
+  #ggsave(paste(out.dir,i,"_cutblock_temp2.png",sep = ""))  
+  # plot 3
+  p2 = ggplot(t.c.group, aes(var_name,sum)) + facet_wrap(~Age_group)+ geom_bar(stat = 'identity') 
+  p2 = p2 + ylab("Percentage") + xlab("") + ggtitle(paste("Percent Cutblock (per area) for harvest (0-40 years) and 41-80 years (",i," herd)",sep = "" ))
+  p2 = p2 + theme_bw()
+  ggsave(paste(out.dir,i,"_cutblock_RPC_0_40_80.png",sep = "")) 
+  
 
+for (i in 1:length(cut.ranges)){ 
+    herd.oi <-cut.ranges[i] 
+    
+    tdata<- cut.040 %>% filter(Range == paste(herd.oi)) # subset fire data for aeach herd
+    tdata.aoi.C <- b.aoi %>%  filter(Range ==paste(herd.oi) & Zone == 'C')
+    tdata.aoi.A <- b.aoi %>%  filter(Range ==paste(herd.oi) & Zone == 'A')
+    # tdata.aoi. <- b.aoi %>%  filter(Range ==paste(herd.oi))  
+    
+    p1 = ggplot() + 
+      geom_sf(data =  tdata.aoi.C , fill = "grey94") + 
+      geom_sf(data =  tdata.aoi.A , fill = "grey96") + 
+      #geom_sf(data = r.temp, aes(fill =dec.period)) + ggtitle("Natural Disturbance per Herd Range") + theme_bw()
+      geom_sf(data = tdata,fill = "red") + facet_grid(.~dec.period)+  ggtitle(paste("Cut Blocks Per Decade within the ",herd.oi," herd boundary",sep = "")) + 
+      theme_bw() 
+    p1
+    ggsave(paste(out.dir,herd.oi,"_cut_temporal.jpg",sep = ""),width = 30, height = 15, units = "cm")  
+  }
+  
 
 
 
