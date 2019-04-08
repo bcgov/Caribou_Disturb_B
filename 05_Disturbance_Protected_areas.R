@@ -64,7 +64,7 @@ out.tab <- Herd_key
 ##############################################################################################
 # Read in  Protection layers
 
-# 1) THEME: Transport 
+# 1) 
 pro<- st_read(dsn=paste(data.dir,Base,sep = ""),layer="designatedlands") # reading in as geometry?
 pro <-st_transform(pro,3005)
 pro.int = st_intersection(b.aoi,pro)   # intersect with ranges
@@ -105,5 +105,36 @@ herds <- as.character(unique(out.tab$Range))
   
   
   
+###############################################################################
+## Make some pretty plots 
+
+## plot 
+
+pro.ranges <- as.character(unique(pro.int$Range)) 
+
+for (i in 1:length(pro.ranges)){ 
+  # i = 1
+  herd.oi <-pro.ranges[i] 
+  
+  tdata<- pro.int %>% filter(Range == paste(herd.oi)) # subset fire data for aeach herd
+  tdata.aoi.C <- b.aoi %>%  filter(Range ==paste(herd.oi) & Zone == 'C')
+  #tdata.aoi.A <- b.aoi %>%  filter(Range ==paste(herd.oi) & Zone == 'A')
+  # tdata.aoi. <- b.aoi %>%  filter(Range ==paste(herd.oi))  
+  
+  p1 = ggplot() + 
+    geom_sf(data =  tdata.aoi.C , fill = "grey94") + 
+    #geom_sf(data =  tdata.aoi.A , fill = "grey96") + 
+    #geom_sf(data = r.temp, aes(fill =dec.period)) + ggtitle("Natural Disturbance per Herd Range") + theme_bw()
+    geom_sf(data = tdata,fill = "dark green",colour = NA) +  
+    ggtitle(paste("Protected Areas within the ",herd.oi," herd boundary",sep = "")) #+ 
+    #theme_bw() 
+  p1
+  
+  ggsave(paste(out.dir,herd.oi,"_protect_map.jpg",sep = ""),width = 30, height = 15, units = "cm")  
+}
+
+
+
+
 
 
