@@ -40,56 +40,308 @@
 
 ## Read in packages and libraries required: 
 
-#install.packages(c("rgdal","sp","dplyr","raster","rgeos","maptools","magrittr","tibble", 
-#				"tidyr","sf","lwgeom","mapview"),dep = T )
-library(ggplot2)
-library(dplyr)
-library(rgdal)
-library(sp)
-library(raster)
-library(rgeos)
-library(maptools)
-library(magrittr)
-library(tibble)
-library(tidyr)
-library(sf)
-library(lwgeom)
-library(mapview)
+
+
+
+
+# Load Libraries 
+x <- c("dplyr","ggplot2","tidyr","raster","sp","sf","rgdal","lwgeom","mapview","tibble", "bcgovr")   
+lapply(x, library, character.only = TRUE) ; rm(x)  # load the required packages
+
+#install.packages("doParallel",dep = T)
+require(doParallel)
+set.seed(123321)
+coreNum <- as.numeric(detectCores()-1)
+coreNo <- makeCluster(coreNum)
+registerDoParallel(coreNo, cores = coreNum)
+clusterEvalQ(coreNo, .libPaths())
+
+memory.limit(size = 80000)
+
 
 ## set your output directory 
-out.dir = "X:/projects/Desktop_Analysis/data/output1/"
-temp.dir = "X:/projects/Desktop_Analysis/data/temp/"
+data.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/Data/"
+out.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/Analysis/"
+temp.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/temp/"
+
+# running on local drive
+data.dir = "C:/Temp/Boreal/Data/"
+out.dir = "C:/Temp/Boreal/Analysis/"
+shape.out.dir =  "C:/Temp/Boreal/Analysis/dist_int_layers/"
+temp.dir = "C:/Temp/Boreal/temp/"
+
+#out.dir ="C:/Temp/BorealV2/Outputs/"
+
 
 ## Set your input geodatabases (this will be where you saved your arcmap exports)
 ## edit these to your filepath and name of gdb
 
-Dissolved  = "X:/projects/Desktop_Analysis/data/Boreal.gdb" # contains 
-Intersect = "X:/projects/Desktop_Analysis/data/scratch1.gdb"
-Base  = "X:/projects/Desktop_Analysis/data/Base_data.gdb" # contains boundaries of interest 
+Base  = "Base_data.gdb" # clipped disturb layers
+#AOI = "AOI_data.gdb"   # AOI
 
 ## List all feature classes in a file geodatabase
 subset(ogrDrivers(), grepl("GDB", name))
-dis_list <- ogrListLayers(Dissolved); print(dis_list)
-int_list <- ogrListLayers(Intersect); print(int_list)
-base_list <- ogrListLayers(Base); print(base_list)
+base_list <- ogrListLayers(paste(data.dir,Base,sep = "")); print(base_list)
+#aoi_list <- ogrListLayers(paste(data.dir,AOI,sep = "")); print(aoi_list)
 
-##############################################################################################
-# Read in herd boundary layers 
+##########################################################################################################
 
-b.core <- st_read(dsn=Base,layer="Boreal_core_BC")
-b.range <- st_read(dsn=Base,layer="Boreal_range_BC")
-b.core.r <- st_intersection(b.range,b.core)
+# Read in herd boundary layers and join to single file 
 
-# calculate the area of core/range/peripery to calculate % values 
+Herd_key <- read.csv(paste(data.dir,"Herd_key.csv",sep = ""))
+b.aoi <- st_read(paste(data.dir,"Boreal_herd_bdry.shp",sep = ""))
+st_crs(b.aoi)<- 3005
+#plot(b.aoi)
+#plot(st_geometry(b.aoi))
 
-Herd_key<- data.frame(b.core.r) %>% 
-  dplyr::select(Range,CORE_NAME,Shape_Area_m,Shape_Area.1) %>% 
-  mutate(R_area_ha = Shape_Area_m/10000) %>% mutate(C_area_ha = Shape_Area.1/10000) %>%
-  dplyr::select(-c(Shape_Area_m,Shape_Area.1)) %>%
-  group_by(Range)%>%
-  summarise(R_area_ha = first(R_area_ha),C_area_ha = sum(C_area_ha))
+Herd_key$ThemeName = "Total_Area"
+Herd_key <- Herd_key %>% dplyr::select(Range, Zone, ThemeName, Area_ha) 
+out.tab <- Herd_key 
 
-Herd_key$P_area_ha <- Herd_key$R_area_ha - Herd_key$C_area_ha # add the values for the periperhy 
+########################################################################################################
+# Read in temporal data sets 
+# FIRE
+
+fire <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="FIRE_Yr_B") # reading in as geometry?      
+fire.int = st_intersection(b.aoi,fire)   # intersect with ranges
+fire.int$TimeSinceBurn = 2018-fire.int$FIRE_YEAR  # add time since burn 
+
+# Break up into temporal sections : 
+
+# add a column to differentiate the age brackets of cutblocks 
+fire.int<- mutate(fire.int,dec.period = ifelse(FIRE_YEAR >= 1958 & FIRE_YEAR <= 1967,1958,
+                                               ifelse(FIRE_YEAR >= 1968 & FIRE_YEAR <= 1977,1968,     
+                                                      ifelse(FIRE_YEAR >= 1978 & FIRE_YEAR <= 1987,1978,      
+                                                             ifelse(FIRE_YEAR >= 1988 & FIRE_YEAR <= 1997,1988,       
+                                                                    ifelse(FIRE_YEAR >= 1998 & FIRE_YEAR <= 2007,1998,
+                                                                           ifelse(FIRE_YEAR >= 2008 & FIRE_YEAR <= 2018,2008,0)))))))
+
+##Pl;ot the data to see spread of fires.  Note this is just using the 
+#p = ggplot(fire.int,aes(dec.period)) + geom_bar() + facet_wrap(~Range) + scale_x_continuous(limits = c(1940,2018))
+
+
+# get the fires in the last 40 years: 
+fire.040 <- fire.int %>% filter(dec.period >= 1978)
+
+decades <- c(unique(fire.040$dec.period)) 
+fire.ranges <- as.character(unique(fire.040$Range)) 
+
+for (i in 1:length(decades)){ 
+  #i = 1
+  y = decades[i]
+  tdata <- fire.040 %>% filter(dec.period == paste(y))
+  tdata <- st_union(tdata)
+  tdata <- st_intersection(b.aoi,tdata)
+  plot(st_geometry(tdata))
+  
+  tdata$Area_ha <- round(as.numeric(st_area(tdata)/10000),2)
+  tdata.df = data.frame(tdata) 
+  tdata.df = tdata.df %>% 
+    group_by(Range,Zone) %>% 
+    summarise(Area_ha = sum(Area_ha))
+  tdata.df$Decade = paste(y)
+  
+  # add each time period to overall table
+  out.tab <- left_join(out.tab,tdata.df, by = c('Range','Zone'))
+} 
+
+write.csv(out.tab, paste(out.dir,"fire_temp_data.csv",sep = ""),row.names= FALSE)
+
+
+######################
+
+## Clean up this table 
+
+out.tab <- read.csv(paste(out.dir,"fire_temp_data.csv",sep = ""))
+out.tab <- out.tab %>% mutate(Area_pc_1978 = round(Area_ha.y/ Area_ha.x*100,2),
+                              Area_pc_1988 = round(Area_ha.x.x/ Area_ha.x*100,2),
+                              Area_pc_1998 = round(Area_ha.y.y/ Area_ha.x*100,2),
+                              Area_pc_2008 = round(Area_ha/Area_ha.x*100,2),
+                              Area_ha_1978 = Area_ha.y,
+                              Area_ha_1988 = Area_ha.x.x,
+                              Area_ha_1998 = Area_ha.y.y,
+                              Area_ha_2008 = Area_ha)
+
+
+out.tab.ha <-out.tab %>% dplyr::select(Range,Zone,Area_ha.x,Area_ha_1978,Area_ha_1988, Area_ha_1998, Area_ha_2008)
+out.tab.pc <-out.tab %>% dplyr::select(Range,Zone,Area_pc_1978,Area_pc_1988, Area_pc_1998, Area_pc_2008)
+
+# format the tabel 
+out.tab.ha <- as.data.frame(t(out.tab.ha))
+out.tab.pc <- as.data.frame(t(out.tab.pc))
+# write out 
+write.csv(out.tab.ha,paste(out.dir,"fire_temp_formated_ha.csv",sep = ""))
+write.csv(out.tab.pc,paste(out.dir,"fire_temp_formated_pc.csv",sep = ""))
+
+#########################################################################################################################
+
+## CUT BLOCKS 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### NATURAL DISTURBANCE  
+
+## BURN:
+# Add to Burn information Break down of burns into 0-40 and 40-80 years (and total) 
+# Break down burns into fire years (same as cutblocks) 
+
+b.r.0 = st_read(dsn = Intersect, layer ="Burn_combo_int")
+b.r.0$TimeSinceBurn = 2018-b.r.0$FIRE_YEAR #; plot(b.r.0$Shape)
+b.r.0 <- st_buffer(b.r.0, 250) 
+b.r.0 <- st_intersection(b.range,b.r.0)
+
+b.r.00 = b.r.0
+b.r.00 <- st_cast(b.r.00,"POLYGON")
+b.r.00$area = st_area(b.r.00)
+head(b.r.00)
+
+#sort(unique(b.r.0$TimeSinceBurn))  # 0 - 40 years range 
+# burns 0-40 years 
+b.r.0.40 = b.r.0[b.r.0$TimeSinceBurn <41,]; #sort(unique(b.r.0$TimeSinceBurn)) 
+b.r.0.40 = st_intersection(b.range,b.r.0.40)
+b.r.0.40 <- st_cast(b.r.0.40 ,"POLYGON")
+b.r.0.40$area = st_area(b.r.0.40)
+#st_write(b.r.0.40,"Dist_R_burn.0.40_500.shp")       #write out individual dist_layer for Range
+
+all.dis.burn = st_union(b.r.0.40)
+
+# burns 41-80 years 
+b.r.40.80 = b.r.0[b.r.0$TimeSinceBurn>40,]; #sort(unique(b.r.40.80$TimeSinceBurn)) 
+b.r.40.80 = st_intersection(b.range,b.r.40.80)
+b.r.40.80 <- st_cast(b.r.40.80 ,"POLYGON")
+b.r.40.80$area = st_area(b.r.40.80)
+#st_write(b.r.40.80,"Dist_R_burn.40.80_500.shp")       #write out individual dist_layer for Range
+
+## All years of burns 
+b.r.0 = st_cast(b.r.0,"POLYGON");  
+b.r.0 = st_union(b.r.0) ; #plot(b.r.c0.40)
+b.r.0 <- st_intersection(b.range,b.r.0)
+b.r.0$area = st_area(b.r.0)
+#all.burn = sum(st_area(b.r.0)) 
+#plot(st_geometry(b.r.0))
+#st_write(b.r.0 ,"Dist_R_burn.0.80_500.shp")       #write out individual dist_layer for Range
+
+# work with the data frames for 0-40 years ## RANGE 
+b.r.0.40.df = data.frame(b.r.0.40)        # calculate the length per range 
+b.r.00.df = data.frame(b.r.00)
+
+# add a column to differentiate the age brackets of cutblocks 
+b.r.00.df <- mutate(b.r.00.df,dec.period = ifelse(FIRE_YEAR >= 1958 & FIRE_YEAR <= 1967,1958,0))
+b.r.00.df <- mutate(b.r.00.df,dec.period = ifelse(FIRE_YEAR >= 1968 & FIRE_YEAR <= 1977,1968,dec.period))
+b.r.00.df<- mutate(b.r.00.df,dec.period = ifelse(FIRE_YEAR >= 1978 & FIRE_YEAR <= 1987,1978,dec.period))
+b.r.00.df<- mutate(b.r.00.df,dec.period = ifelse(FIRE_YEAR >= 1988 & FIRE_YEAR <= 1997,1988,dec.period))   
+b.r.00.df<- mutate(b.r.00.df,dec.period = ifelse(FIRE_YEAR >= 1998 & FIRE_YEAR <= 2007,1998,dec.period))   
+b.r.00.df<- mutate(b.r.00.df,dec.period = ifelse(FIRE_YEAR >= 2008 & FIRE_YEAR <= 2018,2008,dec.period)) 
+#b.r.0.40.df[b.r.0.40.df$dec.period == 0,]
+#head(b.r.0.40.df)
+#unique(b.r.0.40.df$dec.period)
+
+# output the amount of burns by range (all years (0-80))  
+b.r.0.df = data.frame(b.r.0)
+r.burn.df.out  = b.r.0.df  %>% group_by(Range) %>% summarise(R_burn0_80_m2 = sum(area))
+
+# output the amount of burns by range (all years (0 - 40)  
+r.burn.df.out.0.40  = b.r.0.40.df %>% group_by(Range) %>% summarise(R_burn0_40_m2 = sum(area))
+
+# output the amount of burns by range (all years (40-80))  
+b.r.40.80.df = data.frame(b.r.40.80)
+r.burn.df.out.40.80  = b.r.40.80.df %>% group_by(Range) %>% summarise(R_burn40_80_m2 = sum(area))
+
+#output the amount of cutblock per decade (all years) 
+b.r.00.df.temp  =  b.r.00.df %>% group_by(Range,dec.period) %>% summarise(R_burn_dec_m2 = sum(area))
+
+# aggregate to single datset 
+burn.range = left_join(r.burn.df.out,r.burn.df.out.0.40)
+burn.range = left_join(burn.range,r.burn.df.out.40.80 )
+
+#############################
+#### CORE: intersect with core and calculate length per range
+# all years: 
+c.burn = st_intersection(b.core.r,b.r.00)   # intersect with core
+c.burn <- st_cast(c.burn,"POLYGON")
+c.burn$area <- st_area(c.burn)
+
+# 0 - 40 years 
+c.burn0.40 = st_intersection(b.core.r,b.r.0.40)   # intersect with core
+c.burn0.40 <- st_cast(c.burn0.40,"POLYGON")
+c.burn0.40$area <- st_area(c.burn0.40)
+
+# 41 - 80 years
+c.burn40.80 = st_intersection(b.core.r,b.r.40.80)   # intersect with core
+c.burn40.80 <- st_cast(c.burn40.80,"POLYGON")
+c.burn40.80$area <- st_area(c.burn40.80)
+
+
+
+
+
+
+
+fire.int$Area_ha <- round(as.numeric(st_area(fire.int)/10000),2)
+# plot(st_geometry(seis.int))
+fire.int.df = data.frame(fire.int) 
+fire.int.df = fire.int.df %>% 
+  group_by(Range,Zone,ThemeName) %>% 
+  summarise(Area_ha = sum(Area_ha))
+
+##OUTPUT 1 : DATA table
+out.tab <- bind_rows(out.tab,fire.int.df)   ## add to table Herd key 
+write.csv(out.tab,paste(out.dir,"out.table.csv",sep = ""),row.names = FALSE)
+
+##OUTPUT 2: Individual dist layer (spatial)
+
+#st_write(fire.int,paste(shape.out.dir,"D_fire_yr_int.shp")) # generate spatial products
+
+##OUTPUT 3: Spatial layer to add to (cumulative disturbance) 
+#out.sf <-  st_union(out.sf,po.int)  ; plot(st_geometry(out.sf))
+#out.sf = st_union(out.sf); plot(st_geometry(out.sf),add = T)
+#out.sf = st_cast(out.sf,"POLYGON")
+
+#clean up afterwards
+rm(fire,fire.int,fire.int.df)
+
+
+
+
+
+
+
 
 
 ##############################################################################################
