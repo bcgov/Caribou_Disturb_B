@@ -21,9 +21,15 @@ lapply(x, library, character.only = TRUE) ; rm(x)  # load the required packages
 #create_bcgov_project(path = "C:/Temp/Github/Caribou_disturb/Boreal/", coc_email = "genevieve.perkins@gov.bc.ca") 
 
 ## set your output directory 
-data.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/Data/"
-out.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/Analysis/"
-temp.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/temp/"
+#data.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/Data/"
+#out.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/Analysis/"
+#temp.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/temp/"
+
+# running on local drive
+data.dir = "C:/Temp/Boreal/Data/"
+out.dir = "C:/Temp/Boreal/Analysis/"
+shape.out.dir =  "C:/Temp/Boreal/Analysis/dist_int_layers/"
+temp.dir = "C:/Temp/Boreal/temp/"
 
 ## Set your input geodatabases (this will be where you saved your arcmap exports)
 Base  = "Base_data.gdb" # clipped disturb layers
@@ -118,4 +124,52 @@ Herd_key<- data.frame(b.all) %>%
   summarise(Area_ha = sum(Area_ha)) 
 
 write.csv(Herd_key,paste(data.dir,"Herd_key.csv",sep = ""),row.names = FALSE)
+
+
+################################################################################
+## Create a plot per herd: 
+
+
+head(b.all)
+
+
+
+p1 = ggplot() + geom_sf(data = b.all, aes(fill = Zone)) + ggtitle("Range") + theme_bw()
+
+
+
+
+ggplot( )
+
+## OLD PLOT INFO  
+p = ggplot(, aes(Decade,value)) + try(facet_wrap(~var_name))+ geom_bar(stat = 'identity') 
+p = p + ylab("Percentage") + xlab("Decade") + ggtitle(paste("Percent Cutblock (per area) from 1958 - 2017 (",i," herd)",sep = "" ))
+p = p + theme_bw()
+ggsave(paste(out.dir,i,"_cutblock_temp1.png",sep = ""))  
+
+
+
+
+p1 = ggplot() + geom_sf(data = b.all, aes(fill = Zone)) + ggtitle("Range") + theme_bw()
+
+plot(st_geometry(b.all),col = sf.colors()
+col = sf.colors(12, categorical = TRUE)
+
+plot(b.all["Zone"], axes = TRUE)
+
+
+ggplot() + geom_sf(data = b.all, aes(fill = Zone)) + scale_y_continuous(breaks = 34:36)
+
+p1  = p1 + guides(fill=guide_legend(title="Density (km/km2"))
+
+p2 = ggplot() + geom_sf(data = merged.all, aes(fill = per.all)) + ggtitle("Periphery") + theme_bw()
+p2  = p2 + guides(fill=guide_legend(title="Density (km/km2"))
+
+p3 = ggplot() + geom_sf(data = merged.all, aes(fill = core.all)) + ggtitle("Core") + theme_bw()
+p3  = p3 + guides(fill=guide_legend(title="Density (km/km2"))
+
+
+
+
+
 
