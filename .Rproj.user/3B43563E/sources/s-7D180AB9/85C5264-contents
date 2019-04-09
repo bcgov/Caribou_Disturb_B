@@ -38,14 +38,15 @@
 ## This script is used to look at more detailed break-down of cutblocks, fire and pests and to create plots
 
 
-## Read in packages and libraries required:
+## Read in packages and libraries required: 
+
+
+
 
 
 # Load Libraries 
 x <- c("dplyr","ggplot2","tidyr","raster","sp","sf","rgdal","lwgeom","mapview","tibble", "bcgovr")   
 lapply(x, library, character.only = TRUE) ; rm(x)  # load the required packages
-
-library(gridExtra)
 
 #install.packages("doParallel",dep = T)
 require(doParallel)
@@ -174,7 +175,7 @@ write.csv(out.tab.pc,paste(out.dir,"fire_temp_formated_pc.csv",sep = ""))
 
 #########################################################################################################################
 
-## CReate plots per decade 
+## CReate plots 
 
 fire.ranges <- as.character(unique(fire.040$Range)) 
 for (i in 1:length(fire.ranges)){ 
@@ -195,56 +196,6 @@ for (i in 1:length(fire.ranges)){
   p1
   ggsave(paste(out.dir,herd.oi,"_burns_temporal.jpg",sep = ""),width = 30, height = 15, units = "cm")  
 }
-
-
-## CReate plots cumulative per decade 
-
-fire.ranges <- as.character(unique(fire.040$Range)) 
-for (i in 1:length(fire.ranges)){ 
-  #i = 1
-  herd.oi <-fire.ranges[i] 
-  tdata.aoi.C <- b.aoi %>% filter(Range == herd.oi & Zone == 'C')
-  tdata<- fire.040 %>% filter(Range == paste(herd.oi)) # subset fire data for aeach herd
-  tdata78 <- tdata %>%  filter(dec.period == "1978")
-  tdata88 <- tdata %>%  filter(dec.period  <= 1989)
-  tdata98 <- tdata %>% filter(dec.period <= 1999)
-  tdata09 <- tdata %>% filter(dec.period <= 2009)
-  tdata18 <- tdata %>% filter(dec.period <= 2018)
-  
-  p1 = ggplot() + 
-    geom_sf(data =  tdata.aoi.C , fill = "grey94") + 
-    geom_sf(data =  tdata78  , fill = "red",colour = "NA") + ggtitle("1978")
-  
-  p2 =   ggplot() + 
-    geom_sf(data =  tdata.aoi.C , fill = "grey94") + 
-    geom_sf(data =  tdata88  , fill = "red",colour = "NA") + ggtitle("1988")
-
-  p3 = ggplot() + 
-    geom_sf(data =  tdata.aoi.C , fill = "grey94") + 
-    geom_sf(data =  tdata98  , fill = "red",colour = "NA") + ggtitle("1998")
-  
-  p4 = ggplot() + 
-    geom_sf(data =  tdata.aoi.C , fill = "grey94") + 
-    geom_sf(data =  tdata09  , fill = "red",colour = "NA") + ggtitle("2008")
-  
-  p5 = ggplot() + 
-    geom_sf(data =  tdata.aoi.C , fill = "grey94") + 
-    geom_sf(data =  tdata18  , fill = "red",colour = "NA") + ggtitle("2018")
-  
-  p.all <-grid.arrange(p1,p2,p3,p4,p5,nrow = 1,top= paste("Cumulative burns per decade within the", herd.oi,"herd boundary"))
- # p.all <-grid.arrange(p1,p2,p3,p4,p5,nrow = 2,top= paste("Cumulative burns per decade within the", herd.oi,"herd boundary")) # change layout
-  p.all
-
-  ggsave(paste(out.dir,herd.oi,"_burns_cum_temporal.jpg",sep = ""),p.all,width = 30, height = 15, units = "cm")  
-}
-
-
-
-
-
-
-
-
 
 
 
@@ -340,8 +291,7 @@ write.csv(out.tab.pc,paste(out.dir,"cut_temp_formated_pc.csv",sep = ""))
 # spatially 
 
 for (i in 1:length(cut.ranges)){ 
-  
-   herd.oi <-cut.ranges[i] 
+  herd.oi <-cut.ranges[i] 
   
   tdata<- cut.040 %>% filter(Range == paste(herd.oi)) # subset fire data for aeach herd
   tdata.aoi.C <- b.aoi %>%  filter(Range ==paste(herd.oi) & Zone == 'C')
@@ -357,69 +307,6 @@ for (i in 1:length(cut.ranges)){
   p1
   ggsave(paste(out.dir,herd.oi,"_cut_temporal.jpg",sep = ""),width = 30, height = 15, units = "cm")  
 }
-
-#####################################
-##########################################
-## CReate plots cumulative per decade 
-
-
-for (i in 1:length(cut.ranges)){ 
-  #i = 1
-  herd.oi <-cut.ranges[i] 
-  tdata.aoi.C <- b.aoi %>% filter(Range == herd.oi & Zone == 'C')
-  tdata<- cut.040 %>% filter(Range == paste(herd.oi)) # subset fire data for aeach herd
-  tdata78 <- tdata %>%  filter(dec.period == "1978")
-  tdata88 <- tdata %>%  filter(dec.period  <= 1989)
-  tdata98 <- tdata %>% filter(dec.period <= 1999)
-  tdata09 <- tdata %>% filter(dec.period <= 2009)
-  tdata18 <- tdata %>% filter(dec.period <= 2018)
-  
-  p1 = ggplot() + 
-    geom_sf(data =  tdata.aoi.C , fill = "grey94") + 
-    geom_sf(data =  tdata78  , fill = "brown",colour = "NA") + ggtitle("1978")
-  
-  p2 =   ggplot() + 
-    geom_sf(data =  tdata.aoi.C , fill = "grey94") + 
-    geom_sf(data =  tdata88  , fill = "brown",colour = "NA") + ggtitle("1988")
-  
-  p3 = ggplot() + 
-    geom_sf(data =  tdata.aoi.C , fill = "grey94") + 
-    geom_sf(data =  tdata98  , fill = "brown",colour = "NA") + ggtitle("1998")
-  
-  p4 = ggplot() + 
-    geom_sf(data =  tdata.aoi.C , fill = "grey94") + 
-    geom_sf(data =  tdata09  , fill = "brown",colour = "NA") + ggtitle("2008")
-  
-  p5 = ggplot() + 
-    geom_sf(data =  tdata.aoi.C , fill = "grey94") + 
-    geom_sf(data =  tdata18  , fill = "brown",colour = "NA") + ggtitle("2018")
-  
-  p.all <-grid.arrange(p1,p2,p3,p4,p5,nrow = 1,top= paste("Cumulative cutblocks per decade within the", herd.oi,"herd boundary"))
-  # p.all <-grid.arrange(p1,p2,p3,p4,p5,nrow = 2,top= paste("Cumulative burns per decade within the", herd.oi,"herd boundary")) # change layout
-  p.all
-  
-  ggsave(paste(out.dir,herd.oi,"_cutblock_cum_temporal.jpg",sep = ""),p.all,width = 30, height = 15, units = "cm")  
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 ####### Bar chart plots 

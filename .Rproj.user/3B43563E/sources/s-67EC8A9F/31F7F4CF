@@ -1,0 +1,23 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1554483362976.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "31F7F4CF",
+    "lastKnownWriteTime" : 1554487879,
+    "last_content_update" : 1554487879986,
+    "path" : "C:/Temp/Github/Caribou_disturbance/BorealV2/Caribou_Disturb_B/00_Herd_boundary_prep.R",
+    "project_path" : "00_Herd_boundary_prep.R",
+    "properties" : {
+        "cursorPosition" : "148,0",
+        "scrollLine" : "0",
+        "tempName" : "Untitled1"
+    },
+    "relative_order" : 4,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

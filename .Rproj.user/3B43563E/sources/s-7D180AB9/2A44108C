@@ -1,0 +1,22 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1554756142875.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "4138084209",
+    "id" : "2A44108C",
+    "lastKnownWriteTime" : 1554759236,
+    "last_content_update" : 1554759236030,
+    "path" : "C:/Temp/Github/Caribou_disturbance/BorealV2/Caribou_Disturb_B/05_Disturbance_Protected_areas.R",
+    "project_path" : "05_Disturbance_Protected_areas.R",
+    "properties" : {
+        "cursorPosition" : "125,20",
+        "scrollLine" : "107"
+    },
+    "relative_order" : 3,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

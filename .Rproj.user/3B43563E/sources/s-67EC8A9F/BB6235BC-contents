@@ -1,0 +1,581 @@
+# Copyright 2019 Province of British Columbia
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and limitations under the License.
+
+## 
+## Caribou disturbance analysis 2018/2019 
+## 
+## Rerunning caribou analysis based on updated boundary and new disturbance layere provided by RSEA project 
+## written by genevieve perkins (genevieve.perkins@gov.bc.ca)
+## 
+## This requires initial preparation of layers within arcmap. 
+## Step 1) 
+## Assemble layers as listed in documentation in arcmap mxd 
+## Clip the layers to the range with the largest extent (AOI_boreal = 1 km buffered widest extent)
+## Create a filegeodatabdase and output these to the given data base. 
+
+## Step 2)
+## Run the preparation script to clean and generate boundary layers (00_Herd_boundary_prep.R
+##
+## STep 3 )
+## Run through the script below. You may need to adjust 
+## - the names of files to match your arcmap exports 
+## - the directory/folder sructure. 
+##
+## General notes: 
+## For each disturbance layers the script will read in, intersect with zones ABC and calculate the area and or length. 
+## With each layer the compiled disturbance will also be calculated. 
+
+## Associated help files for reference: 
+##https://gis.stackexchange.com/questions/265863/how-to-read-a-feature-class-in-an-esri-personal-geodatabase-using-r
+##http://rstudio-pubs-static.s3.amazonaws.com/255550_1c983c8a6a5a45a0aee5a923206f4818.html
+#http://www.rspatial.org/spatial/rst/7-vectmanip.html#spatial-queries
+#https://r-spatial.github.io/sf/articles/sf1.html
+#https://github.com/r-spatial/sf/issues/290
+
+## Read in packages and libraries required: 
+
+#install.packages(c("rgdal","sp","dplyr","raster","rgeos","maptools","magrittr","tibble", 
+#			"tidyr","sf","lwgeom","mapview"),dep = T )
+
+
+# Load Libraries 
+x <- c("dplyr","ggplot2","tidyr","raster","sp","sf","rgdal","lwgeom","mapview","tibble", "bcgovr")   
+lapply(x, library, character.only = TRUE) ; rm(x)  # load the required packages
+
+#install.packages("doParallel",dep = T)
+require(doParallel)
+set.seed(123321)
+coreNum <- as.numeric(detectCores()-1)
+coreNo <- makeCluster(coreNum)
+registerDoParallel(coreNo, cores = coreNum)
+clusterEvalQ(coreNo, .libPaths())
+
+memory.limit(size = 80000)
+
+#create_bcgov_project(path = "C:/Temp/Github/Caribou_disturb/Boreal/", coc_email = "genevieve.perkins@gov.bc.ca") 
+
+## set your output directory 
+#data.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/Data/"
+#out.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/Analysis/"
+#temp.dir = "Z:/01.Projects/Wildlife/Caribou/02.Disturbance/Boreal/temp/"
+
+# running on local drive
+data.dir = "C:/Temp/Boreal/Data/"
+out.dir = "C:/Temp/Boreal/Analysis/"
+shape.out.dir =  "C:/Temp/Boreal/Analysis/dist_int_layers/"
+temp.dir = "C:/Temp/Boreal/temp/"
+
+## Set your input geodatabases (this will be where you saved your arcmap exports)
+## edit these to your filepath and name of gdb
+
+Base  = "Base_data.gdb" # clipped disturb layers
+#AOI = "AOI_data.gdb"   # AOI
+
+## List all feature classes in a file geodatabase
+subset(ogrDrivers(), grepl("GDB", name))
+base_list <- ogrListLayers(paste(data.dir,Base,sep = "")); print(base_list)
+#aoi_list <- ogrListLayers(paste(data.dir,AOI,sep = "")); print(aoi_list)
+
+##############################################################################################
+# Read in herd boundary layers and join to single file 
+
+Herd_key <- read.csv(paste(data.dir,"Herd_key.csv",sep = ""))
+b.aoi <- st_read(paste(data.dir,"Boreal_herd_bdry.shp",sep = ""))
+st_crs(b.aoi)<- 3005
+  #plot(b.aoi)
+  #plot(st_geometry(b.aoi))
+
+Herd_key$ThemeName = "Total_Area"
+Herd_key <- Herd_key %>% dplyr::select(Range, Zone, ThemeName, Area_ha) 
+out.tab <- Herd_key 
+
+##############################################################################################
+# Read in individual Disturbance layers:
+
+##linear : level B : "TR_Rail_B" ,"CU_Cut_B_l"   "TR_Road_B"   "CU_Trail_B"     
+## linear level C:" AOI_anth_C_linear" 
+
+
+# 1) THEME: Transport 
+roads <- st_read(dsn=paste(data.dir,Base,sep = ""),layer="TR_Road_B_pol") # reading in as geometry?
+          roads  = st_cast(roads,"MULTIPOLYGON")  
+          roads.int = st_intersection(b.aoi,roads)   # intersect with ranges
+          roads.int$Area_ha <- round(as.numeric(st_area(roads.int)/10000),2)
+          # plot(st_geometry(roads.int)) ## this takes a long time 
+          
+          roads.int.df = data.frame(roads.int) 
+          roads.int.df = roads.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(Area_ha = sum(Area_ha))
+
+          roads.int.df
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,roads.int.df)   ## add to table Herd key
+          
+          ##OUTPUT 2: Individual dist layer (spatial)
+          #st_write(roads.int,paste(shape.out.dir,"D_roads_int.shp")) # generate spatial products
+
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,roads.int.df)   ## add to table Herd key
+          ##OUTPUT 2: Individual dist layer (spatial)
+          st_write(roads.int,paste(shape.out.dir,"D_roads_int.shp")) # generate spatial products
+
+          ##OUTPUT 3: Spatial layer to add to (cumulative disturbance) 
+         
+          ## STILL YET TO DO THIS>>>>>>> out.sf <-  roads.int
+          
+          #clean up afterwards
+          rm(roads,roads.int,roads.int.df)
+          
+rail <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="TR_Rail_B_pol") # reading in as geometry?      
+          #st_is_valid(rail)
+          rail <- st_make_valid(rail)
+          rail.int = st_intersection(b.aoi,rail)   # intersect with ranges
+          rail.int$Area_ha <- round(as.numeric(st_area(rail.int)/10000),2)
+          rail.int.df = data.frame(rail.int) 
+          rail.int.df = rail.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(Area_ha = sum(Area_ha))
+         
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,rail.int.df)   ## add to table Herd key 
+
+          
+          ##OUTPUT 2: Individual dist layer (spatial)
+          #st_write(rail.int,paste(shape.out.dir,"D_rail_int.shp")) # generate spatial products 
+          
+          ##OUTPUT 3: Spatial layer to add to (cumulative disturbance) 
+          #out.sf <-  st_union(out.sf,rail.int)  ; plot(st_geometry(out.sf))
+          #out.sf = st_union(out.sf); plot(st_geometry(out.sf),add = T)
+          #out.sf = st_cast(out.sf,"POLYGON")
+
+          ##OUTPUT 2: Individual dist layer (spatial)
+          st_write(rail.int,paste(shape.out.dir,"D_rail_int.shp")) # generate spatial products 
+          ##OUTPUT 3: Spatial layer to add to (cumulative disturbance) 
+          out.sf <-  st_union(out.sf,rail.int)  ; plot(st_geometry(out.sf))
+          out.sf = st_union(out.sf); plot(st_geometry(out.sf),add = T)
+          out.sf = st_cast(out.sf,"POLYGON")
+
+          
+          #clean up afterwards
+          rm(rail,rail.int,rail.int.df)
+       
+### Theme cutlines and trails 
+
+seis <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="CU_Cut_B") # reading in as geometry?      
+          seis <-st_make_valid(seis)
+          #seis = st_cast(seis,"MULTIPOLYGON")
+          seis.int = st_intersection(b.aoi,seis)   # intersect with ranges
+          seis.int$Area_ha <- round(as.numeric(st_area(seis.int)/10000),2)
+          seis.int.df = data.frame(seis.int) 
+          seis.int.df= seis.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(Area_ha = sum(Area_ha))
+        
+
+          #seis.int.df
+          
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,seis.int.df)   ## add to table Herd key 
+          
+          ##OUTPUT 2: Individual dist layer (spatial)
+          #st_write(seis.int,paste(shape.out.dir,"D_seis_int.shp")) # generate spatial products 
+
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,seis.int.df)   ## add to table Herd key 
+          ##OUTPUT 2: Individual dist layer (spatial)
+          st_write(seis.int,paste(shape.out.dir,"D_seis_int.shp")) # generate spatial products 
+
+          
+          ##OUTPUT 3: Spatial layer to add to (cumulative disturbance) 
+          #out.sf <-  st_union(out.sf,seis.int)  ; plot(st_geometry(out.sf))
+          #out.sf = st_union(out.sf); plot(st_geometry(out.sf),add = T)
+          #out.sf = st_cast(out.sf,"POLYGON")
+          
+          #clean up afterwards
+          rm(seis,seis.int,seis.int.df)
+      
+# Trails 
+trail <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="CU_Trail_B_pol") # reading in as geometry?      
+          trail<-st_make_valid(trail)
+          trail.int = st_intersection(b.aoi,trail)   # intersect with ranges
+          trail.int$Area_ha <- round(as.numeric(st_area(trail.int)/10000),2)
+          # plot(st_geometry(seis.int))
+          trail.int.df = data.frame(trail.int) 
+          trail.int.df = trail.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(Area_ha = sum(Area_ha))
+          
+          trail.int.df 
+          
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,trail.int.df)   ## add to table Herd key 
+          
+          ##OUTPUT 2: Individual dist layer (spatial)
+          #st_write(trail.int,paste(shape.out.dir,"D_trail_int.shp")) # generate spatial products 
+
+          ##OUTPUT 2: Individual dist layer (spatial)
+          st_write(trail.int,paste(shape.out.dir,"D_trail_int.shp")) # generate spatial products 
+          
+          ##OUTPUT 3: Spatial layer to add to (cumulative disturbance) 
+          #out.sf <-  st_union(out.sf,trail.int)  ; plot(st_geometry(out.sf))
+          #out.sf = st_union(out.sf); plot(st_geometry(out.sf),add = T)
+          #out.sf = st_cast(out.sf,"POLYGON")
+          
+          #clean up afterwards
+          rm(trail,trail.int,trail.int.df)
+         
+          
+# Recreation   
+rec <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="REC_B") # reading in as geometry?      
+          rec.int = st_intersection(b.aoi,rec)   # intersect with ranges
+          rec.int$Area_ha <- round(as.numeric(st_area(rec.int)/10000),2)
+          # plot(st_geometry(seis.int))
+          rec.int.df = data.frame(rec.int) 
+          rec.int.df= rec.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(Area_ha = sum(Area_ha))
+          
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,rec.int.df)   ## add to table Herd key 
+
+          ##OUTPUT 2: Individual dist layer (spatial)
+          #st_write(rec.int,paste(shape.out.dir,"D_rec_int.shp")) # generate spatial products 
+
+          ##OUTPUT 2: Individual dist layer (spatial)
+          st_write(rec.int,paste(shape.out.dir,"D_rec_int.shp")) # generate spatial products 
+
+          
+          ##OUTPUT 3: Spatial layer to add to (cumulative disturbance) 
+          #out.sf <-  st_union(out.sf,rec.int)  ; plot(st_geometry(out.sf))
+          #out.sf = st_union(out.sf); plot(st_geometry(out.sf),add = T)
+          #out.sf = st_cast(out.sf,"POLYGON")
+          
+          #clean up afterwards
+          rm(rec,rec.int,rec.int.df)
+          
+# Communiuty 
+com<-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="COM_B") # reading in as geometry?               
+          com <- st_make_valid(com)
+          com.int = st_intersection(b.aoi,com)   # intersect with ranges
+          com.int$Area_ha <- round(as.numeric(st_area(com.int)/10000),2)
+          # plot(st_geometry(seis.int))
+          com.int.df = data.frame(com.int) 
+          com.int.df= com.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(Area_ha = sum(Area_ha))
+          
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,com.int.df)   ## add to table Herd key 
+          write.csv(out.tab,paste(out.dir,"out.table.csv",sep = ""),row.names = FALSE)
+          
+          #st_write(com.int,paste(shape.out.dir,"D_agr_int.shp")) # generate spatial products 
+          st_write(com.int,paste(shape.out.dir,"D_com_int.shp")) # generate spatial products 
+          #clean up afterwards
+          rm(com,com.int,com.int.df)
+          
+           
+          
+# Aggriculture
+agr <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="IN_AGRI_B") # reading in as geometry?      
+         agr <- st_make_valid(agr)
+         agr.int = st_intersection(b.aoi,agr)   # intersect with ranges
+         agr.int$Area_ha <- round(as.numeric(st_area(agr.int)/10000),2)
+          # plot(st_geometry(seis.int))
+         agr.int.df = data.frame(agr.int) 
+         agr.int.df= agr.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(Area_ha = sum(Area_ha))
+          
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,agr.int.df)   ## add to table Herd key 
+          write.csv(out.tab,paste(out.dir,"out.table.csv",sep = ""),row.names = FALSE)
+        
+          ##OUTPUT 2: Individual dist layer (spatial)
+
+          #st_write(com.int,paste(shape.out.dir,"D_agr_int.shp")) # generate spatial products 
+          st_write(com.int,paste(shape.out.dir,"D_agr_int.shp")) # generate spatial products 
+          
+          ##OUTPUT 3: Spatial layer to add to (cumulative disturbance) 
+          #out.sf <-  st_union(out.sf,agr.int)  ; plot(st_geometry(out.sf))
+          #out.sf = st_union(out.sf); plot(st_geometry(out.sf),add = T)
+          #out.sf = st_cast(out.sf,"POLYGON")
+          
+          #clean up afterwards
+          rm(agr,agr.int,agr.int.df)
+          
+# Industry - Mining  
+mine <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="IN_MINE_B") # reading in as geometry?      
+          #mine <- st_make_valid(mine)
+          mine.int = st_intersection(b.aoi,mine)   # intersect with ranges
+          mine.int$Area_ha <- round(as.numeric(st_area(mine.int)/10000),2)
+          # plot(st_geometry(seis.int))
+          mine.int.df = data.frame(mine.int) 
+          mine.int.df= mine.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(Area_ha = sum(Area_ha))
+          
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,mine.int.df)   ## add to table Herd key 
+          write.csv(out.tab,paste(out.dir,"out.table.csv",sep = ""),row.names = FALSE)
+          
+          ##OUTPUT 2: Individual dist layer (spatial)
+
+          #st_write(mine.int,paste(shape.out.dir,"D_mine_int.shp")) # generate spatial products 
+          st_write(mine.int,paste(shape.out.dir,"D_mine_int.shp")) # generate spatial products 
+          
+          ##OUTPUT 3: Spatial layer to add to (cumulative disturbance) 
+          #out.sf <-  st_union(out.sf,trail.int)  ; plot(st_geometry(out.sf))
+          #out.sf = st_union(out.sf); plot(st_geometry(out.sf),add = T)
+          #out.sf = st_cast(out.sf,"POLYGON")
+          
+          #clean up afterwards
+          rm(mine,mine.int,mine.int.df)
+          
+# Industry -  POwer
+po <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="IN_POW_B") # reading in as geometry?      
+          po <- st_make_valid(po)
+          po.int = st_intersection(b.aoi,po)   # intersect with ranges
+          po.int$Area_ha <- round(as.numeric(st_area(po.int)/10000),2)
+          # plot(st_geometry(seis.int))
+          po.int.df = data.frame(po.int) 
+          po.int.df= po.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(Area_ha = sum(Area_ha))
+          
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,po.int.df)   ; out.tab## add to table Herd key 
+          write.csv(out.tab,paste(out.dir,"out.table.csv",sep = ""),row.names = FALSE)
+          
+          ##OUTPUT 2: Individual dist layer (spatial)
+          #st_write(po.int,paste(shape.out.dir,"D_pow_int.shp")) # generate spatial products 
+          out.tab <- bind_rows(out.tab,po.int.df)   ## add to table Herd key 
+          write.csv(out.tab,paste(out.dir,"out.table.csv",sep = ""),row.names = FALSE)
+          
+          ##OUTPUT 2: Individual dist layer (spatial)
+          st_write(po.int,paste(shape.out.dir,"D_pow_int.shp")) # generate spatial products 
+          
+          ##OUTPUT 3: Spatial layer to add to (cumulative disturbance) 
+          #out.sf <-  st_union(out.sf,po.int)  ; plot(st_geometry(out.sf))
+          #out.sf = st_union(out.sf); plot(st_geometry(out.sf),add = T)
+          #out.sf = st_cast(out.sf,"POLYGON")
+          
+          #clean up afterwards
+          rm(po,po.int,po.int.df)
+
+# Industry -  oil and gas
+og <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="IN_OG_B") # reading in as geometry?      
+          og <- st_make_valid(og)
+
+          og.int = st_intersection(b.aoi,og)   # intersect with ranges
+          og.int$Area_ha <- round(as.numeric(st_area(og.int)/10000),2)
+          # plot(st_geometry(seis.int))
+          og.int.df = data.frame(og.int) 
+          og.int.df = og.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(Area_ha = sum(Area_ha))
+          
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,og.int.df)   ## add to table Herd key 
+          write.csv(out.tab,paste(out.dir,"out.table.csv",sep = ""),row.names = FALSE)
+          
+          ##OUTPUT 2: Individual dist layer (spatial)
+
+          #st_write(og.int,paste(shape.out.dir,"D_og_int.shp")) # generate spatial products 
+          #st_write(og.int,paste(shape.out.dir,"D_og_int.shp")) # generate spatial products 
+
+          
+          ##OUTPUT 3: Spatial layer to add to (cumulative disturbance) 
+          #out.sf <-  st_union(out.sf,og.int)  ; plot(st_geometry(out.sf))
+          #out.sf = st_union(out.sf); plot(st_geometry(out.sf),add = T)
+          #out.sf = st_cast(out.sf,"POLYGON")
+          
+          #clean up afterwards
+          rm(og,og.int,og.int.df)
+          
+## Cut blocks: 
+cut  <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="CU_Cut_B") # reading in as geometry?      
+          cut <- st_make_valid(cut)
+          cut.int = st_intersection(b.aoi,cut)   # intersect with ranges
+          cut.int$Area_ha <- round(as.numeric(st_area(cut.int)/10000),2)
+          # plot(st_geometry(seis.int))
+          cut.int.df = data.frame(cut.int) 
+          cut.int.df = cut.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(Area_ha = sum(Area_ha))
+          
+          
+          
+## community           
+          
+          
+          
+          
+          
+          
+          
+##################################################################################################
+
+# Natural Disturbance (PEst and Fire (all year))
+
+#          
+          
+# PEst 
+pest <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="PEST_B") # reading in as geometry?      
+          pest.int = st_intersection(b.aoi,pest)   # intersect with ranges
+          pest.int$Area_ha <- round(as.numeric(st_area(pest.int)/10000),2)
+          # plot(st_geometry(seis.int))
+          pest.int.df = data.frame(pest.int) 
+          pest.int.df = pest.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(Area_ha = sum(Area_ha))
+          
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,pest.int.df)   ## add to table Herd key 
+          write.csv(out.tab,paste(out.dir,"out.table.csv",sep = ""),row.names = FALSE)
+          
+          ##OUTPUT 2: Individual dist layer (spatial)
+
+          # st_write(pest.int,paste(shape.out.dir,"D_pest_int.shp")) # generate spatial products 
+
+          st_write(pest.int,paste(shape.out.dir,"D_pest_int.shp")) # generate spatial products 
+
+          
+          ##OUTPUT 3: Spatial layer to add to (cumulative disturbance) 
+          #out.sf <-  st_union(out.sf,po.int)  ; plot(st_geometry(out.sf))
+          #out.sf = st_union(out.sf); plot(st_geometry(out.sf),add = T)
+          #out.sf = st_cast(out.sf,"POLYGON")
+          
+          #clean up afterwards
+          rm(pest,pest.int,pest.int.df)
+          
+# FIRE BY ALL YEARS
+
+fire <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="FIRE_Yr_B") # reading in as geometry?      
+         fire.int = st_intersection(b.aoi,fire)   # intersect with ranges
+         fire.int$Area_ha <- round(as.numeric(st_area(fire.int)/10000),2)
+          # plot(st_geometry(seis.int))
+         fire.int.df = data.frame(fire.int) 
+         fire.int.df = fire.int.df %>% 
+            group_by(Range,Zone,ThemeName) %>% 
+            summarise(Area_ha = sum(Area_ha))
+         
+          ##OUTPUT 1 : DATA table
+          out.tab <- bind_rows(out.tab,fire.int.df)   ## add to table Herd key 
+          write.csv(out.tab,paste(out.dir,"out.table.csv",sep = ""),row.names = FALSE)
+          
+          ##OUTPUT 2: Individual dist layer (spatial)
+
+          #st_write(fire.int,paste(shape.out.dir,"D_fire_yr_int.shp")) # generate spatial products
+          
+          ##OUTPUT 3: Spatial layer to add to (cumulative disturbance) 
+          #out.sf <-  st_union(out.sf,po.int)  ; plot(st_geometry(out.sf))
+          #out.sf = st_union(out.sf); plot(st_geometry(out.sf),add = T)
+          #out.sf = st_cast(out.sf,"POLYGON")
+          
+          #clean up afterwards
+          rm(fire,fire.int,fire.int.df)
+          
+
+###################################################################################
+# Calculate total disturb using RSEA cumulative values 
+###################################################################################
+
+# ANTROPOGENIC 
+anth <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="AOI_anth_C_poly") # reading in as geometry?      
+          anth <- st_make_valid(anth)
+          anth.int = st_intersection(b.aoi,anth)   # intersect with ranges
+          
+          anth.int$Area_ha <- round(as.numeric(st_area(anth.int)/10000),2)
+          anth.int.df = data.frame(anth.int) 
+          anth.int.df = anth.int.df %>% 
+            group_by(Range,Zone,AnthroDistType) %>% 
+            summarise(Area_ha = sum(Area_ha))
+          
+          
+          anth.int.df.all = anth.int.df %>% 
+            group_by(Range,Zone) %>% 
+            summarise(Area_ha = sum(Area_ha))
+         
+          anth.int.df.all$ThemeName = "Anth_C" 
+          
+          ##OUTPUT 1 : DATA table
+          out.tab.total  <- bind_rows(out.tab,anth.int.df.all)   ## add to table Herd key 
+          write.csv(out.tab.total,paste(out.dir,"out.table.total.csv",sep = ""),row.names = FALSE)
+          
+          ##OUTPUT 2: Individual dist layer (spatial)
+          #st_write(anth.int,paste(shape.out.dir,"D_Anth_int.shp")) # generate spatial products 
+          
+          #clean up afterwards
+          rm(anth,anth.int)
+
+###################################################################################
+# Calculate total disturb using RSEA cumulative values 
+###################################################################################          
+                    
+# Matural 
+nat <-  st_read(dsn=paste(data.dir,Base,sep = ""),layer="AOI_nat_C_poly") # reading in as geometry?      
+          nat.int = st_intersection(b.aoi,nat)   # intersect with ranges
+          nat.int$Area_ha <- round(as.numeric(st_area(nat.int)/10000),2)
+          # plot(st_geometry(seis.int))
+          nat.int.df = data.frame(nat.int) 
+          nat.int.df = nat.int.df %>% 
+            group_by(Range,Zone,NaturalDistType) %>% 
+            summarise(Area_ha = sum(Area_ha))
+          
+
+          nat.int.df.all = data.frame(nat.int) 
+          nat.int.df.all = nat.int.df.all %>% 
+            group_by(Range,Zone) %>% 
+            summarise(Area_ha = sum(Area_ha))
+          
+          nat.int.df.all$ThemeName = "Nat_C"
+          
+          ##OUTPUT 1 : DATA table
+          out.tab.total  <- bind_rows(out.tab.total,nat.int.df.all)   ## add to table Herd key 
+          write.csv(out.tab.total,paste(out.dir,"out.table.total.csv",sep = ""),row.names = FALSE)
+          
+          
+           
+#####################################################
+# Write out the detailed tables 
+write.csv(anth.int.df,paste(out.dir,"out.anth.C.totals.csv",sep = ""),row.names = FALSE)
+write.csv(nat.int.df,paste(out.dir,"out.nat.C.totals.csv",sep = ""),row.names = FALSE)          
+  
+############################################################################################
+############################################################################################
+
+# read in and summarise the data
+
+out.tab <- read.csv(paste(out.dir,"out.table.total.csv",sep = ""))
+out.tab <- merge(out.tab,Herd_key, by= c('Range','Zone')) # add the size of the areas 
+out.tab <- out.tab %>% mutate(Area_pc = round(Area_ha.x/ Area_ha.y*100,2)) %>% dplyr::select(Range,Zone,ThemeName.x,Area_ha.x,Area_pc)
+
+final.data.table <- as.data.frame(unique(out.tab$ThemeName.x))
+colnames(final.data.table)= 'ThemeName.x'
+
+#loop through the herds
+herds <- as.character(unique(out.tab$Range))
+
+for(i in 1:8){ 
+ # i = 1
+  h = herds[i]
+  tdata <- out.tab %>% dplyr::filter(Range == paste(h))
+  tdata.area <- tdata %>% dplyr::select(Range,Zone,ThemeName.x,Area_ha.x) %>% spread(.,key = Zone,value = Area_ha.x)
+  tdata.pc<- tdata %>% dplyr::select(Range,Zone,ThemeName.x,Area_pc) %>% spread(.,key = Zone,value = Area_pc)
+  tdata.out <- merge(tdata.area,tdata.pc,by=c('ThemeName.x'))
+  final.table<- left_join(final.data.table,tdata.out)
+  write.csv(final.table,paste(out.dir,h,"_out.sum.csv",sep = ""),row.names = FALSE)
+  }
+
+#write.csv(final.data.table,paste(out.dir,"final_data_sum.csv",sep = ""),row.names = FALSE)
+

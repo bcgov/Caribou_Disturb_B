@@ -1,0 +1,22 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1554740374473.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "85C5264",
+    "lastKnownWriteTime" : 1554756135,
+    "last_content_update" : 1554756135861,
+    "path" : "C:/Temp/Github/Caribou_disturbance/BorealV2/Caribou_Disturb_B/03_Disturbance_temporal.R",
+    "project_path" : "03_Disturbance_temporal.R",
+    "properties" : {
+        "cursorPosition" : "199,0",
+        "scrollLine" : "175"
+    },
+    "relative_order" : 2,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}
